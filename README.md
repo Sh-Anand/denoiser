@@ -1,2 +1,1 @@
-# denoiser
-Intel OIDN based denoiser
+Intel OIDN based denoiser to denoise pathtraced kernels
