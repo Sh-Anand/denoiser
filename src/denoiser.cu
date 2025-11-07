@@ -10,16 +10,25 @@ int main(int argc, char** argv) {
     const char* input_file = argv[1];
 
     EXR exr;
-    exr.load(input_file);
+    // For now, assume the beauty buffer is stored in RGB channels.
+    exr.load(input_file, {"R", "G", "B", "Z", "NX", "NY", "NZ"});
 
     printf("Width: %d\n", exr.width);
     printf("Height: %d\n", exr.height);
-    printf("Num channels: %d\n", exr.num_channels);
-    printf("Channel names: ");
-    for (const auto& name : exr.channel_names) {
+    printf("Requested channels: %zu\n", exr.loaded_channels.size());
+    printf("Available channels: ");
+    for (const auto& name : exr.available_channels) {
         printf("%s ", name.c_str());
     }
     printf("\n");
+
+    printf("Loaded channels: ");
+    for (const auto& name : exr.loaded_channels) {
+        printf("%s ", name.c_str());
+    }
+    printf("\n");
+
+    printf("Tensor size: %zu floats\n", exr.tensor.size());
     
     return 0;
 }
