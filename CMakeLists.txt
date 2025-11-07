@@ -21,6 +21,7 @@ endif()
 set(APPLICATION_SOURCE
     src/denoiser.cu
     src/exr.cpp
+    src/tza.cpp
 )
 
 find_package(OpenEXR REQUIRED)
