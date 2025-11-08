@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
     }
 
     const char* input_file = argv[1];
+    std::string weights_path = (argc == 3) ? argv[2] : "../weights/rt_hdr.tza";
 
     EXR exr;
     // For now, assume the beauty buffer is stored in RGB channels.
@@ -33,23 +34,20 @@ int main(int argc, char** argv) {
 
     printf("Tensor size: %zu floats\n", exr.tensor.size());
 
-    if (argc == 3) {
-        const char* weights_file = argv[2];
-        TzaFile weights;
-        loadTza(weights_file, weights); 
+    TzaFile weights;
+    loadTza(weights_path, weights); 
 
-        printf("Loaded %zu tensors from %s\n", weights.tensors.size(), weights_file);
-        for (const auto& tensor : weights.tensors) {
-            printf("  %s : type=%s dims=[", tensor.name.c_str(),
-                   tensor.type == TzaTensor::DataType::Float32 ? "f32" :
-                   tensor.type == TzaTensor::DataType::Float16 ? "f16" : "unknown");
-            for (std::size_t i = 0; i < tensor.dims.size(); ++i) {
-                printf("%u", tensor.dims[i]);
-                if (i + 1 < tensor.dims.size())
-                    printf(",");
-            }
-            printf("]\n");
+    printf("Loaded %zu tensors from %s\n", weights.tensors.size(), weights_path.c_str());
+    for (const auto& tensor : weights.tensors) {
+        printf("  %s : type=%s dims=[", tensor.name.c_str(),
+               tensor.type == TzaTensor::DataType::Float32 ? "f32" :
+               tensor.type == TzaTensor::DataType::Float16 ? "f16" : "unknown");
+        for (std::size_t i = 0; i < tensor.dims.size(); ++i) {
+            printf("%u", tensor.dims[i]);
+            if (i + 1 < tensor.dims.size())
+                printf(",");
         }
+        printf("]\n");
     }
     
     return 0;
