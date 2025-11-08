@@ -25,11 +25,13 @@ set(APPLICATION_SOURCE
 )
 
 find_package(OpenEXR REQUIRED)
+find_package(OpenMP REQUIRED)
 
 add_executable(denoiser ${APPLICATION_SOURCE})
 target_include_directories(denoiser PUBLIC include)
 target_link_libraries(denoiser
-    OpenEXR::OpenEXR)
+    OpenEXR::OpenEXR
+    OpenMP::OpenMP_CXX)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
