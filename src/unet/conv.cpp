@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <omp.h>
 
 // n = 1
 void convolve_nhwc_oihw(const float* input,
@@ -14,6 +15,7 @@ void convolve_nhwc_oihw(const float* input,
     const std::size_t out_h = in_h - filter_h + 1;
     const std::size_t out_w = in_w - filter_w + 1;
 
+    #pragma omp parallel for collapse(3)
     for (int h = 0; h < out_h; h++) {
         for (int w = 0; w < out_w; w++) {
             for (int o = 0; o < out_c; o++) {
