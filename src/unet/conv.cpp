@@ -20,7 +20,7 @@ void conv_relu_nhwc_oihw(const float* input,
     for (int h = 0; h < H; h++) {
         for (int w = 0; w < W; w++) {
             for (int o = 0; o < out_c; o++) {
-                float sum = (float)bias[o];
+                float sum = (float) bias[o];
                 for (int i = 0; i < in_c; i++) {
                     for (int fh = 0; fh < filter_h; fh++) {
                         const int ih = h + fh - pad_h;
@@ -31,7 +31,7 @@ void conv_relu_nhwc_oihw(const float* input,
                             if (iw < 0 || iw >= W)
                                 continue;
                             sum += input[(ih * W + iw) * in_c + i] *
-                                   weights[o * in_c * filter_h * filter_w +
+                                   (float) weights[o * in_c * filter_h * filter_w +
                                            i * filter_h * filter_w +
                                            fh * filter_w + fw];
                         }
