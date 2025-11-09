@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace {
+namespace EXR {
 
 std::vector<std::string> gather_channel_names(const Imf::ChannelList& channels) {
     std::vector<std::string> names;
@@ -29,9 +29,7 @@ char* base_pointer(float* data, const Imath::Box2i& window, int width) {
                                     static_cast<std::ptrdiff_t>(window.min.y) * row_stride);
 }
 
-}  // namespace
-
-void EXR::load(const std::string& filename, const std::vector<std::string>& requested_labels) {
+void Image::load(const std::string& filename, const std::vector<std::string>& requested_labels) {
     if (requested_labels.empty()) {
         throw std::runtime_error("No channel labels requested for EXR load");
     }
@@ -101,3 +99,5 @@ void EXR::load(const std::string& filename, const std::vector<std::string>& requ
     // Release the per-channel planes now that we've packed the data.
     channel_planes.clear();
 }
+
+}  // namespace EXR

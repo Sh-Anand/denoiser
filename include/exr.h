@@ -7,7 +7,8 @@
 #include <string>
 #include <vector>
 
-class EXR {
+namespace EXR { 
+class Image {
 public:
     // Loads only the requested channel labels (e.g., {"R","G","B"} or {"beauty.R", ...})
     void load(const std::string& filename, const std::vector<std::string>& requested_labels);
@@ -28,5 +29,7 @@ public:
 private:
     std::vector<std::unique_ptr<Imf::Array2D<float>>> channel_planes;
 };
+
+}
 
 #endif  // EXR_H

@@ -12,9 +12,9 @@
 #include "tza.h"
 #include "unet.h"
 
-void oidn_unet(EXR& input_img,
+void oidn_unet(EXR::Image& input_img,
                TzaFile& weights,
-               EXR& output_img) {
+               EXR::Image& output_img) {
 
     const size_t h0 = input_img.height;
     const size_t w0 = input_img.width;
@@ -33,11 +33,10 @@ void oidn_unet(EXR& input_img,
         {{{weights.find("dec_conv4a.weight"), weights.find("dec_conv4a.bias")}, {weights.find("dec_conv4b.weight"), weights.find("dec_conv4b.bias")}}, LayerPostOp::NN_UPSAMPLE},
         {{{weights.find("dec_conv3a.weight"), weights.find("dec_conv3a.bias")}, {weights.find("dec_conv3b.weight"), weights.find("dec_conv3b.bias")}}, LayerPostOp::NN_UPSAMPLE},
         {{{weights.find("dec_conv2a.weight"), weights.find("dec_conv2a.bias")}, {weights.find("dec_conv2b.weight"), weights.find("dec_conv2b.bias")}}, LayerPostOp::NN_UPSAMPLE},
-        {{{weights.find("dec_conv1a.weight"), weights.find("dec_conv1a.bias")}, {weights.find("dec_conv1b.weight"), weights.find("dec_conv1b.bias")}}, LayerPostOp::NN_UPSAMPLE},
+        {{{weights.find("dec_conv1a.weight"), weights.find("dec_conv1a.bias")}, {weights.find("dec_conv1b.weight"), weights.find("dec_conv1b.bias")}}, LayerPostOp::NONE},
         {{{weights.find("dec_conv0.weight"), weights.find("dec_conv0.bias")}}, LayerPostOp::NONE}
     };
 
-    // encode stage
     std::vector<std::unique_ptr<float[]>> encode_outputs;
 
     size_t h = h0;
