@@ -30,3 +30,29 @@ void conv_relu_nhwc_oihw(const float* input,
         }
     }
 }
+
+// 2x2 max pool stride 2
+// in_h and in_w must be even
+void max_pool_nhwc(const float* input,
+                   float* output,
+                   std::size_t in_h,
+                   std::size_t in_w,
+                   std::size_t in_c) {
+    const std::size_t out_h = in_h / 2;
+    const std::size_t out_w = in_w / 2;
+
+    #pragma omp parallel for collapse(3)
+    for (int h = 0; h < out_h; h++) {
+        const std::size_t h0 = 2 * h;
+        for (int w = 0; w < out_w; w++) {
+            const std::size_t w0 = 2 * w;
+            for (int c = 0; c < in_c; c++) {
+                float max_val = input[(h0 * in_w + w0) * in_c + c];
+                max_val = std::max(max_val, input[(h0 * in_w + (w0 + 1)) * in_c + c]);
+                max_val = std::max(max_val, input[((h0 + 1) * in_w + w0) * in_c + c]);
+                max_val = std::max(max_val, input[((h0 + 1) * in_w + (w0 + 1)) * in_c + c]);
+                output[(h * out_w + w) * in_c + c] = max_val;
+            }
+        }
+    }
+}
