@@ -23,6 +23,7 @@ set(APPLICATION_SOURCE
     src/denoiser.cu
     src/exr.cpp
     src/tza.cpp
+    src/unet/unet.cpp
 )
 
 find_package(OpenEXR REQUIRED)
