@@ -3,6 +3,8 @@
 #include <OpenEXR/ImfChannelList.h>
 #include <OpenEXR/ImfFrameBuffer.h>
 #include <OpenEXR/ImfInputFile.h>
+#include <OpenEXR/ImfOutputFile.h>
+#include <OpenEXR/ImfHeader.h>
 #include <Imath/ImathBox.h>
 
 #include <cstddef>
@@ -98,6 +100,45 @@ void Image::load(const std::string& filename, const std::vector<std::string>& re
 
     // Release the per-channel planes now that we've packed the data.
     channel_planes.clear();
+}
+
+void dump_image(const float* data, int width, int height, const std::string& filename, 
+                const std::vector<std::string>& channels) {
+    if (channels.empty()) {
+        throw std::runtime_error("No channels specified for EXR dump");
+    }
+    if (width <= 0 || height <= 0) {
+        throw std::runtime_error("Invalid image dimensions for EXR dump");
+    }
+    
+    Imf::Header header(width, height);
+    auto& ch = header.channels();
+    for (const auto& channel_name : channels) {
+        ch.insert(channel_name.c_str(), Imf::Channel(Imf::FLOAT));
+    }
+    
+    Imf::OutputFile file(filename.c_str(), header);
+    Imf::FrameBuffer frameBuffer;
+    
+    const size_t num_channels = channels.size();
+    const size_t pixelSize = sizeof(float) * num_channels;
+    const size_t lineSize = pixelSize * width;
+    
+    char* base = const_cast<char*>(reinterpret_cast<const char*>(data));
+    char* flipped_base = base + (height - 1) * lineSize;
+    
+    for (size_t i = 0; i < num_channels; i++) {
+        char* channel_start = flipped_base + i * sizeof(float);
+        frameBuffer.insert(channels[i].c_str(), Imf::Slice(
+            Imf::FLOAT,
+            channel_start,
+            pixelSize,
+            -static_cast<int>(lineSize)
+        ));
+    }
+    
+    file.setFrameBuffer(frameBuffer);
+    file.writePixels(height);
 }
 
 }  // namespace EXR
