@@ -15,7 +15,8 @@ int main(int argc, char** argv) {
     }
 
     const char* input_file = argv[1];
-    std::string weights_path = (argc == 3) ? argv[2] : "../weights/rt_hdr.tza";
+    std::string model_name = (argc == 3) ? argv[2] : "rt_hdr";
+    std::string weights_path = "../weights/" + model_name + ".tza";
 
     EXR::Image exr;
     // For now, assume the beauty buffer is stored in RGB channels.
@@ -39,7 +40,7 @@ int main(int argc, char** argv) {
     printf("Tensor size: %zu floats\n", exr.tensor.size());
 
     TzaFile weights;
-    loadTza(weights_path, weights); 
+    loadTza(weights_path, weights);
 
     printf("Loaded %zu tensors from %s\n", weights.tensors.size(), weights_path.c_str());
     for (const auto& tensor : weights.tensors) {
@@ -54,7 +55,7 @@ int main(int argc, char** argv) {
         printf("]\n");
     }
 
-    UNetModel model("rt_hdr", weights);
+    UNetModel model(model_name, weights);
     EXR::Image output_img;
     oidn_unet(exr, model, output_img);
     
