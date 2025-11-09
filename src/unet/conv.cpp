@@ -5,27 +5,39 @@
 // n = 1
 void conv_relu_nhwc_oihw(const float* input,
                         float* output,
-                        size_t in_h,
-                        size_t in_w,
+                        size_t H,
+                        size_t W,
                         size_t filter_h,
                         size_t filter_w,
                         size_t in_c,
                         size_t out_c,
                         const _Float16* weights,
                         const _Float16* bias) {
-    const size_t out_h = in_h - filter_h + 1;
-    const size_t out_w = in_w - filter_w + 1;
+    const size_t pad_h = filter_h / 2;
+    const size_t pad_w = filter_w / 2;
 
     #pragma omp parallel for collapse(3)
-    for (int h = 0; h < out_h; h++) {
-        for (int w = 0; w < out_w; w++) {
+    for (int h = 0; h < H; h++) {
+        for (int w = 0; w < W; w++) {
             for (int o = 0; o < out_c; o++) {
-                float sum = bias[o];
-                for (int i = 0; i < in_c; i++) 
-                    for (int fh = 0; fh < filter_h; fh++) 
-                        for (int fw = 0; fw < filter_w; fw++)
-                            sum += input[(h + fh) * in_w * in_c + (w + fw) * in_c + i] * weights[o * in_c * filter_h * filter_w + i * filter_h * filter_w + fh * filter_w + fw];
-                output[h * out_w * out_c + w * out_c + o] = std::max(0.f, sum);
+                float sum = (float)bias[o];
+                for (int i = 0; i < in_c; i++) {
+                    for (int fh = 0; fh < filter_h; fh++) {
+                        const int ih = h + fh - pad_h;
+                        if (ih < 0 || ih >= H)
+                            continue;
+                        for (int fw = 0; fw < filter_w; fw++) {
+                            const int iw = w + fw - pad_w;
+                            if (iw < 0 || iw >= W)
+                                continue;
+                            sum += input[(ih * W + iw) * in_c + i] *
+                                   weights[o * in_c * filter_h * filter_w +
+                                           i * filter_h * filter_w +
+                                           fh * filter_w + fw];
+                        }
+                    }
+                }
+                output[(h * W + w) * out_c + o] = std::max(0.f, sum);
             }
         }
     }
