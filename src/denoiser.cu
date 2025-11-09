@@ -2,6 +2,7 @@
 #include <string>
 
 #include "exr.h"
+#include "model.h"
 #include "tza.h"
 #include "unet.h"
 
@@ -53,8 +54,9 @@ int main(int argc, char** argv) {
         printf("]\n");
     }
 
+    UNetModel model("rt_hdr", weights);
     EXR::Image output_img;
-    oidn_unet(exr, weights, output_img);
+    oidn_unet(exr, model, output_img);
     
     std::string output_file = "output.exr";
     EXR::dump_image(output_img.tensor.data(), output_img.width, output_img.height, output_file);

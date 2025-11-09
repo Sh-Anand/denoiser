@@ -9,12 +9,12 @@
 #include "conv.h"
 #include "exr.h"
 #include "layer.h"
-#include "tza.h"
+#include "model.h"
 #include "unet.h"
 #include "transfer.h"
 
 void oidn_unet(EXR::Image& input_img,
-               TzaFile& weights,
+               UNetModel& model,
                EXR::Image& output_img) {
 
     const size_t h0 = input_img.height;
@@ -24,23 +24,6 @@ void oidn_unet(EXR::Image& input_img,
     constexpr size_t alignment = 16;
     const size_t h_padded = ((h0 + alignment - 1) / alignment) * alignment;
     const size_t w_padded = ((w0 + alignment - 1) / alignment) * alignment;
-    
-    std::vector<Layer> encoder_layers = {
-        {{{weights.find("enc_conv0.weight"), weights.find("enc_conv0.bias")}}, LayerPostOp::NONE},
-        {{{weights.find("enc_conv1.weight"), weights.find("enc_conv1.bias")}}, LayerPostOp::MAX_POOL},
-        {{{weights.find("enc_conv2.weight"), weights.find("enc_conv2.bias")}}, LayerPostOp::MAX_POOL},
-        {{{weights.find("enc_conv3.weight"), weights.find("enc_conv3.bias")}}, LayerPostOp::MAX_POOL},
-        {{{weights.find("enc_conv4.weight"), weights.find("enc_conv4.bias")}}, LayerPostOp::MAX_POOL}, 
-        {{{weights.find("enc_conv5a.weight"), weights.find("enc_conv5a.bias")}, {weights.find("enc_conv5b.weight"), weights.find("enc_conv5b.bias")}}, LayerPostOp::NN_UPSAMPLE}
-    };
-
-    std::vector<Layer> decoder_layers = {
-        {{{weights.find("dec_conv4a.weight"), weights.find("dec_conv4a.bias")}, {weights.find("dec_conv4b.weight"), weights.find("dec_conv4b.bias")}}, LayerPostOp::NN_UPSAMPLE},
-        {{{weights.find("dec_conv3a.weight"), weights.find("dec_conv3a.bias")}, {weights.find("dec_conv3b.weight"), weights.find("dec_conv3b.bias")}}, LayerPostOp::NN_UPSAMPLE},
-        {{{weights.find("dec_conv2a.weight"), weights.find("dec_conv2a.bias")}, {weights.find("dec_conv2b.weight"), weights.find("dec_conv2b.bias")}}, LayerPostOp::NN_UPSAMPLE},
-        {{{weights.find("dec_conv1a.weight"), weights.find("dec_conv1a.bias")}, {weights.find("dec_conv1b.weight"), weights.find("dec_conv1b.bias")}}, LayerPostOp::NONE},
-        {{{weights.find("dec_conv0.weight"), weights.find("dec_conv0.bias")}}, LayerPostOp::NONE}
-    };
 
     std::vector<std::unique_ptr<float[]>> encode_outputs;
 
@@ -69,8 +52,8 @@ void oidn_unet(EXR::Image& input_img,
     auto original_input = std::make_unique<float[]>(h * w * c);
     std::copy(input.get(), input.get() + h * w * c, original_input.get());
     
-    for (size_t layer_idx = 0; layer_idx < encoder_layers.size(); layer_idx++) {
-        const auto& [layer, post_op] = encoder_layers[layer_idx];
+    for (size_t layer_idx = 0; layer_idx < model.encoder_layers.size(); layer_idx++) {
+        const auto& [layer, post_op] = model.encoder_layers[layer_idx];
         std::unique_ptr<float[]> output;
         for (auto [weights, bias]: layer) {
             size_t out_c = weights->dims[0];
@@ -102,15 +85,15 @@ void oidn_unet(EXR::Image& input_img,
     }
     
     int skip_idx = 3;
-    for (const auto& [layer, post_op]: decoder_layers) {
+    for (const auto& [layer, post_op]: model.decoder_layers) {
         std::unique_ptr<float[]> output;
         if (skip_idx >= 0) {
             const auto& skip = (skip_idx == 3) ? encode_outputs[3] : 
                                (skip_idx == 2) ? encode_outputs[2] :
                                (skip_idx == 1) ? encode_outputs[1] : original_input;
-            size_t skip_c = (skip_idx == 3) ? encoder_layers[3].first.back().first->dims[0] :
-                            (skip_idx == 2) ? encoder_layers[2].first.back().first->dims[0] :
-                            (skip_idx == 1) ? encoder_layers[1].first.back().first->dims[0] : c0;
+            size_t skip_c = (skip_idx == 3) ? model.encoder_layers[3].first.back().first->dims[0] :
+                            (skip_idx == 2) ? model.encoder_layers[2].first.back().first->dims[0] :
+                            (skip_idx == 1) ? model.encoder_layers[1].first.back().first->dims[0] : c0;
             auto concat = std::make_unique<float[]>(h * w * (c + skip_c));
             #pragma omp parallel for
             for (size_t i = 0; i < h * w; i++) {
