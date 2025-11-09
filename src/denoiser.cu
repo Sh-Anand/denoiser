@@ -3,8 +3,11 @@
 
 #include "exr.h"
 #include "tza.h"
+#include "unet.h"
 
 int main(int argc, char** argv) {
+    setbuf(stdout, NULL);
+    
     if (argc < 2 || argc > 3) {
         printf("Usage: %s <input_file> [weights.tza]\n", argv[0]);
         return 1;
@@ -13,7 +16,7 @@ int main(int argc, char** argv) {
     const char* input_file = argv[1];
     std::string weights_path = (argc == 3) ? argv[2] : "../weights/rt_hdr.tza";
 
-    EXR exr;
+    EXR::Image exr;
     // For now, assume the beauty buffer is stored in RGB channels.
     exr.load(input_file, {"R", "G", "B"});
 
@@ -49,6 +52,13 @@ int main(int argc, char** argv) {
         }
         printf("]\n");
     }
+
+    EXR::Image output_img;
+    oidn_unet(exr, weights, output_img);
+    
+    std::string output_file = "output.exr";
+    EXR::dump_image(output_img.tensor.data(), output_img.width, output_img.height, output_file);
+    printf("Saved output to %s\n", output_file.c_str());
     
     return 0;
 }
