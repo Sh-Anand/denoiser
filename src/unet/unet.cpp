@@ -11,6 +11,7 @@
 #include "layer.h"
 #include "tza.h"
 #include "unet.h"
+#include "transfer.h"
 
 void oidn_unet(EXR::Image& input_img,
                TzaFile& weights,
@@ -47,17 +48,29 @@ void oidn_unet(EXR::Image& input_img,
     size_t w = w_padded;
     size_t c = c0;
     
+    // Apply PU transfer function to input (for HDR)
+    const float normScale = Transfer::compute_norm_scale();
+    const float rcpNormScale = Transfer::compute_rcp_norm_scale();
+    
     auto input = std::make_unique<float[]>(h * w * c);
     std::fill_n(input.get(), h * w * c, 0.0f);
     #pragma omp parallel for
     for (size_t y = 0; y < h0; y++) {
-        std::copy_n(&input_img.tensor[y * w0 * c], w0 * c, input.get() + y * w * c);
+        for (size_t x = 0; x < w0; x++) {
+            for (size_t ch = 0; ch < c; ch++) {
+                size_t src_idx = (y * w0 + x) * c + ch;
+                size_t dst_idx = (y * w + x) * c + ch;
+                float val = input_img.tensor[src_idx];
+                input[dst_idx] = Transfer::PU::forward(val) * normScale;
+            }
+        }
     }
     
     auto original_input = std::make_unique<float[]>(h * w * c);
     std::copy(input.get(), input.get() + h * w * c, original_input.get());
     
-    for (const auto& [layer, post_op]: encoder_layers) {
+    for (size_t layer_idx = 0; layer_idx < encoder_layers.size(); layer_idx++) {
+        const auto& [layer, post_op] = encoder_layers[layer_idx];
         std::unique_ptr<float[]> output;
         for (auto [weights, bias]: layer) {
             size_t out_c = weights->dims[0];
@@ -68,10 +81,7 @@ void oidn_unet(EXR::Image& input_img,
             c = out_c;
             input = std::move(output);
         }
-        auto saved = std::make_unique<float[]>(h * w * c);
-        std::copy(input.get(), input.get() + h * w * c, saved.get());
-        encode_outputs.push_back(std::move(saved));
-
+        
         if (post_op == LayerPostOp::MAX_POOL) {
             output = std::make_unique<float[]>(h * w * c);
             max_pool_nhwc(input.get(), output.get(), h, w, c);
@@ -85,6 +95,10 @@ void oidn_unet(EXR::Image& input_img,
             h = h * 2;
             w = w * 2;
         }
+        
+        auto saved = std::make_unique<float[]>(h * w * c);
+        std::copy(input.get(), input.get() + h * w * c, saved.get());
+        encode_outputs.push_back(std::move(saved));
     }
     
     int skip_idx = 3;
@@ -128,8 +142,17 @@ void oidn_unet(EXR::Image& input_img,
     output_img.width = w0;
     output_img.height = h0;
     output_img.tensor.resize(h0 * w0 * c);
+    
+    // Apply inverse PU transfer function to output (for HDR)
     #pragma omp parallel for
     for (size_t y = 0; y < h0; y++) {
-        std::copy_n(input.get() + y * w * c, w0 * c, &output_img.tensor[y * w0 * c]);
+        for (size_t x = 0; x < w0; x++) {
+            for (size_t ch = 0; ch < c; ch++) {
+                size_t src_idx = (y * w + x) * c + ch;
+                size_t dst_idx = (y * w0 + x) * c + ch;
+                float val = input[src_idx];
+                output_img.tensor[dst_idx] = Transfer::PU::inverse(val * rcpNormScale);
+            }
+        }
     }
 }
