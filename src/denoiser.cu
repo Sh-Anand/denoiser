@@ -9,14 +9,16 @@
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
     
-    if (argc < 2 || argc > 3) {
-        printf("Usage: %s <input_file> [weights.tza]\n", argv[0]);
+    if (argc < 2 || argc > 5) {
+        printf("Usage: %s <input_file> [model_name=rt_hdr] [target=cpu|cuda] [output_file=output.exr]\n", argv[0]);
         return 1;
     }
 
     const char* input_file = argv[1];
     std::string model_name = (argc == 3) ? argv[2] : "rt_hdr";
     std::string weights_path = "../weights/" + model_name + ".tza";
+    std::string target = (argc == 4) ? argv[3] : "cpu";
+    std::string output_file = (argc == 5) ? argv[4] : "output.exr";
 
     EXR::Image exr;
     // For now, assume the beauty buffer is stored in RGB channels.
@@ -57,9 +59,11 @@ int main(int argc, char** argv) {
 
     UNetModel model(model_name, weights);
     EXR::Image output_img;
-    oidn_unet(exr, model, output_img);
+
+    if (target == "cpu") {
+        oidn_unet(exr, model, output_img);
+    }
     
-    std::string output_file = "output.exr";
     EXR::dump_image(output_img.tensor.data(), output_img.width, output_img.height, output_file);
     printf("Saved output to %s\n", output_file.c_str());
     
