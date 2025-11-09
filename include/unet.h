@@ -1,4 +1,9 @@
-#include "exr.h"
-#include "tza.h"
+#ifndef UNET_H
+#define UNET_H
 
-void oidn_unet(EXR::Image& input_img, TzaFile& weights, EXR::Image& output_img);
+#include "exr.h"
+#include "model.h"
+
+void oidn_unet(EXR::Image& input_img, UNetModel& model, EXR::Image& output_img);
+
+#endif // UNET_H

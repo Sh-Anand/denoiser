@@ -1,3 +1,6 @@
+#ifndef LAYER_H
+#define LAYER_H
+
 #include "tza.h"
 
 enum LayerPostOp {
@@ -8,3 +11,5 @@ enum LayerPostOp {
 };
 
 typedef std::pair<std::vector<std::pair<const TzaTensor*, const TzaTensor*>>, LayerPostOp> Layer;
+
+#endif // LAYER_H
