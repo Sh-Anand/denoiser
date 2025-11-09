@@ -125,15 +125,14 @@ void dump_image(const float* data, int width, int height, const std::string& fil
     const size_t lineSize = pixelSize * width;
     
     char* base = const_cast<char*>(reinterpret_cast<const char*>(data));
-    char* flipped_base = base + (height - 1) * lineSize;
     
     for (size_t i = 0; i < num_channels; i++) {
-        char* channel_start = flipped_base + i * sizeof(float);
+        char* channel_start = base + i * sizeof(float);
         frameBuffer.insert(channels[i].c_str(), Imf::Slice(
             Imf::FLOAT,
             channel_start,
             pixelSize,
-            -static_cast<int>(lineSize)
+            static_cast<int>(lineSize)
         ));
     }
     
