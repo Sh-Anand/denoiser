@@ -5,16 +5,16 @@
 // n = 1
 void conv_relu_nhwc_oihw(const float* input,
                         float* output,
-                        std::size_t in_h,
-                        std::size_t in_w,
-                        std::size_t filter_h,
-                        std::size_t filter_w,
-                        std::size_t in_c,
-                        std::size_t out_c,
+                        size_t in_h,
+                        size_t in_w,
+                        size_t filter_h,
+                        size_t filter_w,
+                        size_t in_c,
+                        size_t out_c,
                         const float* weights,
                         const float* bias) {
-    const std::size_t out_h = in_h - filter_h + 1;
-    const std::size_t out_w = in_w - filter_w + 1;
+    const size_t out_h = in_h - filter_h + 1;
+    const size_t out_w = in_w - filter_w + 1;
 
     #pragma omp parallel for collapse(3)
     for (int h = 0; h < out_h; h++) {
@@ -35,17 +35,17 @@ void conv_relu_nhwc_oihw(const float* input,
 // in_h and in_w must be even
 void max_pool_nhwc(const float* input,
                    float* output,
-                   std::size_t in_h,
-                   std::size_t in_w,
-                   std::size_t in_c) {
-    const std::size_t out_h = in_h / 2;
-    const std::size_t out_w = in_w / 2;
+                   size_t in_h,
+                   size_t in_w,
+                   size_t in_c) {
+    const size_t out_h = in_h / 2;
+    const size_t out_w = in_w / 2;
 
     #pragma omp parallel for collapse(3)
     for (int h = 0; h < out_h; h++) {
-        const std::size_t h0 = 2 * h;
+        const size_t h0 = 2 * h;
         for (int w = 0; w < out_w; w++) {
-            const std::size_t w0 = 2 * w;
+            const size_t w0 = 2 * w;
             for (int c = 0; c < in_c; c++) {
                 float max_val = input[(h0 * in_w + w0) * in_c + c];
                 max_val = std::max(max_val, input[(h0 * in_w + (w0 + 1)) * in_c + c]);
@@ -61,17 +61,17 @@ void max_pool_nhwc(const float* input,
 // in_h and in_w must be even
 void avg_pool_nhwc(const float* input,
                    float* output,
-                   std::size_t in_h,
-                   std::size_t in_w,
-                   std::size_t in_c) {
-    const std::size_t out_h = in_h / 2;
-    const std::size_t out_w = in_w / 2;
+                   size_t in_h,
+                   size_t in_w,
+                   size_t in_c) {
+    const size_t out_h = in_h / 2;
+    const size_t out_w = in_w / 2;
 
     #pragma omp parallel for collapse(3)
     for (int h = 0; h < out_h; h++) {
-        const std::size_t h0 = 2 * h;
+        const size_t h0 = 2 * h;
         for (int w = 0; w < out_w; w++) {
-            const std::size_t w0 = 2 * w;
+            const size_t w0 = 2 * w;
             for (int c = 0; c < in_c; c++) {
                 float avg_val = input[(h0 * in_w + w0) * in_c + c];
                 avg_val += input[(h0 * in_w + (w0 + 1)) * in_c + c];
@@ -87,17 +87,17 @@ void avg_pool_nhwc(const float* input,
 // in_h and in_w must be even
 void nn_upsample_nhwc(const float* input,
                       float* output,
-                      std::size_t in_h,
-                      std::size_t in_w,
-                      std::size_t in_c) {
-    const std::size_t out_h = in_h * 2;
-    const std::size_t out_w = in_w * 2;
+                      size_t in_h,
+                      size_t in_w,
+                      size_t in_c) {
+    const size_t out_h = in_h * 2;
+    const size_t out_w = in_w * 2;
 
     #pragma omp parallel for collapse(3)
     for (int h = 0; h < out_h; h++) {
-        const std::size_t h0 = h / 2;
+        const size_t h0 = h / 2;
         for (int w = 0; w < out_w; w++) {
-            const std::size_t w0 = w / 2;
+            const size_t w0 = w / 2;
             for (int c = 0; c < in_c; c++) {
                 output[(h * out_w + w) * in_c + c] = input[(h0 * in_w + w0) * in_c + c];
             }
