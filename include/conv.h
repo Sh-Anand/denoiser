@@ -8,8 +8,8 @@ void conv_relu_nhwc_oihw(const float* input,
                         std::size_t filter_w,
                         std::size_t in_c,
                         std::size_t out_c,
-                        const float* weights,
-                        const float* bias);
+                        const _Float16* weights,
+                        const _Float16* bias);
 
 void max_pool_nhwc(const float* input,
                    float* output,

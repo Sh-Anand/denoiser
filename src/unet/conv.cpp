@@ -11,8 +11,8 @@ void conv_relu_nhwc_oihw(const float* input,
                         size_t filter_w,
                         size_t in_c,
                         size_t out_c,
-                        const float* weights,
-                        const float* bias) {
+                        const _Float16* weights,
+                        const _Float16* bias) {
     const size_t out_h = in_h - filter_h + 1;
     const size_t out_w = in_w - filter_w + 1;
 
