@@ -1,8 +1,9 @@
 #include <cstddef>
 #include <omp.h>
+#include <cmath>
 
 // n = 1
-void convolve_nhwc_oihw(const float* input,
+void conv_relu_nhwc_oihw(const float* input,
                         float* output,
                         std::size_t in_h,
                         std::size_t in_w,
@@ -24,7 +25,7 @@ void convolve_nhwc_oihw(const float* input,
                     for (int fh = 0; fh < filter_h; fh++) 
                         for (int fw = 0; fw < filter_w; fw++)
                             sum += input[(h + fh) * in_w * in_c + (w + fw) * in_c + i] * weights[o * in_c * filter_h * filter_w + i * filter_h * filter_w + fh * filter_w + fw];
-                output[h * out_w * out_c + w * out_c + o] = sum;
+                output[h * out_w * out_c + w * out_c + o] = std::max(0.f, sum);
             }
         }
     }
