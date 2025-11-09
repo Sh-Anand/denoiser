@@ -19,6 +19,7 @@ if(BUILD_DEBUG)
 endif()
 
 set(APPLICATION_SOURCE
+    src/unet/conv.cpp
     src/denoiser.cu
     src/exr.cpp
     src/tza.cpp
