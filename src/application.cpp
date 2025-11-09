@@ -58,13 +58,13 @@ int main(int argc, char** argv) {
     }
 
     UNetModel model(model_name, weights);
-    EXR::Image output_img;
+    float* output_img;
 
     if (target == "cpu") {
         oidn_unet(exr, model, output_img);
     }
     
-    EXR::dump_image(output_img.tensor.data(), output_img.width, output_img.height, output_file);
+    EXR::dump_image(output_img, exr.width, exr.height, output_file);
     printf("Saved output to %s\n", output_file.c_str());
     
     return 0;

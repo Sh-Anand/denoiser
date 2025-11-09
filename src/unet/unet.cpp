@@ -15,7 +15,7 @@
 
 void oidn_unet(EXR::Image& input_img,
                UNetModel& model,
-               EXR::Image& output_img) {
+               float*& output_img) {
 
     const size_t h0 = input_img.height;
     const size_t w0 = input_img.width;
@@ -122,9 +122,7 @@ void oidn_unet(EXR::Image& input_img,
         }
     }
     
-    output_img.width = w0;
-    output_img.height = h0;
-    output_img.tensor.resize(h0 * w0 * c);
+    auto output = std::make_unique<float[]>(h0 * w0 * c);
     
     // Apply inverse PU transfer function to output (for HDR)
     #pragma omp parallel for
@@ -134,8 +132,10 @@ void oidn_unet(EXR::Image& input_img,
                 size_t src_idx = (y * w + x) * c + ch;
                 size_t dst_idx = (y * w0 + x) * c + ch;
                 float val = input[src_idx];
-                output_img.tensor[dst_idx] = Transfer::PU::inverse(val * rcpNormScale);
+                output[dst_idx] = Transfer::PU::inverse(val * rcpNormScale);
             }
         }
     }
+
+    output_img = output.release();
 }
