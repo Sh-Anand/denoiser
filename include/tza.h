@@ -28,8 +28,8 @@ struct TzaTensor {
     std::size_t elementCount() const;
     std::size_t elementSizeBytes() const;
 
-    const TzaTensorStripped* strip() const {
-        return new TzaTensorStripped{data.data(), dims[0]};
+    const TzaTensorStripped strip() const {
+        return TzaTensorStripped{data.data(), dims[0]};
     }
 };
 
