@@ -27,6 +27,7 @@ set(APPLICATION_SOURCE
     src/tza.cu
     src/model.cu
     src/unet/cpu/unet.cpp
+    src/unet/cuda/unet.cu
 )
 
 find_package(OpenEXR REQUIRED)

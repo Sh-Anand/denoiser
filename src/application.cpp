@@ -62,6 +62,11 @@ int main(int argc, char** argv) {
 
     if (target == "cpu") {
         oidn_unet(exr, model, output_img);
+    } else if (target == "cuda") {
+        oidn_unet_cuda(exr, model, output_img);
+    } else {
+        printf("Error: Unknown target '%s'. Use 'cpu' or 'cuda'.\n", target.c_str());
+        return 1;
     }
     
     EXR::dump_image(output_img, exr.width, exr.height, output_file);
