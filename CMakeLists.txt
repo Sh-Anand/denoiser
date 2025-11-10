@@ -19,12 +19,12 @@ if(BUILD_DEBUG)
 endif()
 
 set(APPLICATION_SOURCE
-    src/unet/conv.cpp
+    src/unet/cpu/conv.cpp
     src/application.cpp
     src/exr.cpp
     src/tza.cpp
     src/model.cpp
-    src/unet/unet.cpp
+    src/unet/cpu/unet.cpp
 )
 
 find_package(OpenEXR REQUIRED)
