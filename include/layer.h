@@ -10,6 +10,6 @@ enum LayerPostOp {
     NONE
 };
 
-typedef std::pair<std::vector<std::pair<const TzaTensor*, const TzaTensor*>>, LayerPostOp> Layer;
+typedef std::pair<std::vector<std::pair<const TzaTensorStripped*, const TzaTensorStripped*>>, LayerPostOp> Layer;
 
 #endif // LAYER_H

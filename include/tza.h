@@ -6,8 +6,12 @@
 #include <string_view>
 #include <vector>
 
-struct TzaTensor
-{
+struct TzaTensorStripped {
+    std::vector<uint32_t> dims;
+    std::vector<uint8_t> data;
+};
+
+struct TzaTensor {
     enum class DataType
     {
         Float16,
@@ -23,10 +27,13 @@ struct TzaTensor
 
     std::size_t elementCount() const;
     std::size_t elementSizeBytes() const;
+
+    const TzaTensorStripped* strip() const {
+        return new TzaTensorStripped{dims, data};
+    }
 };
 
-struct TzaFile
-{
+struct TzaFile {
     std::vector<TzaTensor> tensors;
 
     const TzaTensor* find(std::string_view tensor_name) const;
