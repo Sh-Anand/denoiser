@@ -20,6 +20,7 @@ endif()
 
 set(APPLICATION_SOURCE
     src/unet/cpu/conv.cpp
+    src/unet/cuda/conv.cu
     src/application.cpp
     src/exr.cpp
     src/tza.cpp
