@@ -24,17 +24,21 @@ static void apply_convolutions(const Layer& layer, std::unique_ptr<float[]>& inp
 static void apply_post_op(LayerPostOp post_op, std::unique_ptr<float[]>& input,
                           size_t& h, size_t& w, size_t c) {
     if (post_op == LayerPostOp::MAX_POOL) {
-        auto output = std::make_unique<float[]>(h * w * c);
+        size_t out_h = h / 2;
+        size_t out_w = w / 2;
+        auto output = std::make_unique<float[]>(out_h * out_w * c);
         max_pool_nhwc(input.get(), output.get(), h, w, c);
         input = std::move(output);
-        h = h / 2;
-        w = w / 2;
+        h = out_h;
+        w = out_w;
     } else if (post_op == LayerPostOp::NN_UPSAMPLE) {
-        auto output = std::make_unique<float[]>(h * w * c * 4);
+        size_t out_h = h * 2;
+        size_t out_w = w * 2;
+        auto output = std::make_unique<float[]>(out_h * out_w * c);
         nn_upsample_nhwc(input.get(), output.get(), h, w, c);
         input = std::move(output);
-        h = h * 2;
-        w = w * 2;
+        h = out_h;
+        w = out_w;
     }
 }
 
