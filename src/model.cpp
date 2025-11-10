@@ -1,5 +1,6 @@
 #include "model.h"
 
+// NOTE: massive assumption that the weights will remain in scope throughout the model's lifetime
 UNetModel::UNetModel(const std::string& model_name, TzaFile& weights) {
 
     std::vector<std::vector<TzaTensorStripped>> encoder_weights;
@@ -62,14 +63,50 @@ UNetModel::UNetModel(const std::string& model_name, TzaFile& weights) {
         };
     }
 
+    // Flatten and allocate storage
+    size_t total_encoder_weights = 0, total_encoder_biases = 0;
+    size_t total_decoder_weights = 0, total_decoder_biases = 0;
+    for (const auto& w : encoder_weights) total_encoder_weights += w.size();
+    for (const auto& b : encoder_biases) total_encoder_biases += b.size();
+    for (const auto& w : decoder_weights) total_decoder_weights += w.size();
+    for (const auto& b : decoder_biases) total_decoder_biases += b.size();
+    
+    encoder_weights_storage = new TzaTensorStripped[total_encoder_weights];
+    encoder_biases_storage = new TzaTensorStripped[total_encoder_biases];
+    decoder_weights_storage = new TzaTensorStripped[total_decoder_weights];
+    decoder_biases_storage = new TzaTensorStripped[total_decoder_biases];
+    
+    size_t offset = 0;
     encoder_layers = new Layer[encoder_weights.size()];
     for (size_t i = 0; i < encoder_weights.size(); i++) {
-        encoder_layers[i] = {encoder_weights.at(i).data(), encoder_biases.at(i).data(), encoder_weights.at(i).size(), encoder_post_ops.at(i)};
+        for (size_t j = 0; j < encoder_weights[i].size(); j++) {
+            encoder_weights_storage[offset + j] = encoder_weights[i][j];
+            encoder_biases_storage[offset + j] = encoder_biases[i][j];
+        }
+        encoder_layers[i] = {&encoder_weights_storage[offset], &encoder_biases_storage[offset], encoder_weights[i].size(), encoder_post_ops[i]};
+        offset += encoder_weights[i].size();
     }
+    
+    offset = 0;
     decoder_layers = new Layer[decoder_weights.size()];
     for (size_t i = 0; i < decoder_weights.size(); i++) {
-        decoder_layers[i] = {decoder_weights.at(i).data(), decoder_biases.at(i).data(), decoder_weights.at(i).size(), decoder_post_ops.at(i)};
+        for (size_t j = 0; j < decoder_weights[i].size(); j++) {
+            decoder_weights_storage[offset + j] = decoder_weights[i][j];
+            decoder_biases_storage[offset + j] = decoder_biases[i][j];
+        }
+        decoder_layers[i] = {&decoder_weights_storage[offset], &decoder_biases_storage[offset], decoder_weights[i].size(), decoder_post_ops[i]};
+        offset += decoder_weights[i].size();
     }
+    
     num_encoder_layers = encoder_weights.size();
     num_decoder_layers = decoder_weights.size();
+}
+
+UNetModel::~UNetModel() {
+    delete[] encoder_layers;
+    delete[] decoder_layers;
+    delete[] encoder_weights_storage;
+    delete[] encoder_biases_storage;
+    delete[] decoder_weights_storage;
+    delete[] decoder_biases_storage;
 }
