@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string>
+#include <chrono>
 
 #include "exr.h"
 #include "model.h"
@@ -60,6 +61,8 @@ int main(int argc, char** argv) {
     UNetModel model = createUNetModel(model_name, weights, target == "cuda");
     float* output_img;
 
+    auto start = std::chrono::high_resolution_clock::now();
+    
     if (target == "cpu") {
         oidn_unet(exr, model, output_img);
     } else if (target == "cuda") {
@@ -68,6 +71,10 @@ int main(int argc, char** argv) {
         printf("Error: Unknown target '%s'. Use 'cpu' or 'cuda'.\n", target.c_str());
         return 1;
     }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    printf("Runtime: %ld ms\n", duration.count());
     
     EXR::dump_image(output_img, exr.width, exr.height, output_file);
     printf("Saved output to %s\n", output_file.c_str());
