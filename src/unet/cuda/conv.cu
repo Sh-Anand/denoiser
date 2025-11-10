@@ -2,7 +2,7 @@
 
 #include <cuda_fp16.h>
 
-DEVICE void conv_relu_nhwc_oihw_cuda(const float* input,
+__global__ void conv_relu_nhwc_oihw_cuda(const float* input,
                                      float* output,
                                      size_t in_h,
                                      size_t in_w,
@@ -42,7 +42,7 @@ DEVICE void conv_relu_nhwc_oihw_cuda(const float* input,
     output[(h * in_w + w) * out_c + o] = fmaxf(0.f, sum);
 }
 
-DEVICE void max_pool_nhwc_cuda(const float* input,
+__global__ void max_pool_nhwc_cuda(const float* input,
                                float* output,
                                size_t in_h,
                                size_t in_w,
@@ -67,7 +67,7 @@ DEVICE void max_pool_nhwc_cuda(const float* input,
     output[(h * out_w + w) * in_c + c] = max_val;
 }
 
-DEVICE void avg_pool_nhwc_cuda(const float* input,
+__global__ void avg_pool_nhwc_cuda(const float* input,
                                float* output,
                                size_t in_h,
                                size_t in_w,
@@ -93,7 +93,7 @@ DEVICE void avg_pool_nhwc_cuda(const float* input,
     output[(h * out_w + w) * in_c + c] = avg_val * 0.25f;
 }
 
-DEVICE void nn_upsample_nhwc_cuda(const float* input,
+__global__ void nn_upsample_nhwc_cuda(const float* input,
                                   float* output,
                                   size_t in_h,
                                   size_t in_w,

@@ -1,6 +1,7 @@
 #ifndef TRANSFER_H
 #define TRANSFER_H
 
+#include "cuda_defs.h"
 #include <cmath>
 
 namespace Transfer {
@@ -20,7 +21,7 @@ struct PU {
     static constexpr float x0 =  2.23151711e-03f;
     static constexpr float x1 =  3.70974749e-01f;
 
-    static inline float forward(float y) {
+    HOST_DEVICE static inline float forward(float y) {
         if (y <= y0)
             return a * y;
         else if (y <= y1)
@@ -29,7 +30,7 @@ struct PU {
             return std::log(y + f) * e + g;
     }
 
-    static inline float inverse(float x) {
+    HOST_DEVICE static inline float inverse(float x) {
         if (x <= x0)
             return x / a;
         else if (x <= x1)
