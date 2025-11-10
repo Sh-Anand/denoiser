@@ -56,11 +56,11 @@ void oidn_unet(EXR::Image& input_img,
         const auto& [layer, post_op] = model.encoder_layers[layer_idx];
         std::unique_ptr<float[]> output;
         for (auto [weights, bias]: layer) {
-            size_t out_c = weights->dims[0];
+            size_t out_c = weights->out_channels;
             output = std::make_unique<float[]>(h * w * out_c);
             conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
-                                reinterpret_cast<const _Float16*>(weights->data.data()), 
-                                reinterpret_cast<const _Float16*>(bias->data.data()));
+                                reinterpret_cast<const _Float16*>(weights->data), 
+                                reinterpret_cast<const _Float16*>(bias->data));
             c = out_c;
             input = std::move(output);
         }
@@ -92,9 +92,9 @@ void oidn_unet(EXR::Image& input_img,
             const auto& skip = (skip_idx == 3) ? encode_outputs[3] : 
                                (skip_idx == 2) ? encode_outputs[2] :
                                (skip_idx == 1) ? encode_outputs[1] : original_input;
-            size_t skip_c = (skip_idx == 3) ? model.encoder_layers[3].first.back().first->dims[0] :
-                            (skip_idx == 2) ? model.encoder_layers[2].first.back().first->dims[0] :
-                            (skip_idx == 1) ? model.encoder_layers[1].first.back().first->dims[0] : c0;
+            size_t skip_c = (skip_idx == 3) ? model.encoder_layers[3].first.back().first->out_channels :
+                            (skip_idx == 2) ? model.encoder_layers[2].first.back().first->out_channels :
+                            (skip_idx == 1) ? model.encoder_layers[1].first.back().first->out_channels : c0;
             auto concat = std::make_unique<float[]>(h * w * (c + skip_c));
             #pragma omp parallel for
             for (size_t i = 0; i < h * w; i++) {
@@ -106,11 +106,11 @@ void oidn_unet(EXR::Image& input_img,
             skip_idx--;
         }
         for (auto [weights, bias]: layer) {
-            size_t out_c = weights->dims[0];
+            size_t out_c = weights->out_channels;
             output = std::make_unique<float[]>(h * w * out_c);
             conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
-                                reinterpret_cast<const _Float16*>(weights->data.data()), 
-                                reinterpret_cast<const _Float16*>(bias->data.data()));
+                                reinterpret_cast<const _Float16*>(weights->data), 
+                                reinterpret_cast<const _Float16*>(bias->data));
             c = out_c;
             input = std::move(output);
         }

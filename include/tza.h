@@ -7,8 +7,8 @@
 #include <vector>
 
 struct TzaTensorStripped {
-    std::vector<uint32_t> dims;
-    std::vector<uint8_t> data;
+    const uint8_t* data;
+    uint32_t out_channels;
 };
 
 struct TzaTensor {
@@ -29,7 +29,7 @@ struct TzaTensor {
     std::size_t elementSizeBytes() const;
 
     const TzaTensorStripped* strip() const {
-        return new TzaTensorStripped{dims, data};
+        return new TzaTensorStripped{data.data(), dims[0]};
     }
 };
 
