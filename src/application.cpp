@@ -15,10 +15,10 @@ int main(int argc, char** argv) {
     }
 
     const char* input_file = argv[1];
-    std::string target = (argc == 2) ? argv[2] : "cpu";
-    std::string model_name = (argc == 3) ? argv[3] : "rt_hdr";
+    std::string target = (argc >= 3) ? argv[2] : "cpu";
+    std::string model_name = (argc >= 4) ? argv[3] : "rt_hdr";
     std::string weights_path = "../weights/" + model_name + ".tza";
-    std::string output_file = (argc == 4) ? argv[4] : "output.exr";
+    std::string output_file = (argc >= 5) ? argv[4] : "output.exr";
 
     EXR::Image exr;
     // For now, assume the beauty buffer is stored in RGB channels.
