@@ -133,19 +133,6 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
             model.decoder_layers[i].biases = &d_dec_biases[offset];
             offset += decoder_weights[i].size();
         }
-        
-        Layer *d_enc_layers, *d_dec_layers;
-        cudaMalloc(&d_enc_layers, encoder_weights.size() * sizeof(Layer));
-        cudaMalloc(&d_dec_layers, decoder_weights.size() * sizeof(Layer));
-        
-        cudaMemcpy(d_enc_layers, model.encoder_layers, encoder_weights.size() * sizeof(Layer), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_dec_layers, model.decoder_layers, decoder_weights.size() * sizeof(Layer), cudaMemcpyHostToDevice);
-        
-        delete[] model.encoder_layers;
-        delete[] model.decoder_layers;
-        
-        model.encoder_layers = d_enc_layers;
-        model.decoder_layers = d_dec_layers;
     }
 
     return model;
