@@ -1,10 +1,5 @@
 #include <algorithm>
-#include <array>
-#include <cstddef>
 #include <memory>
-#include <stdexcept>
-#include <stdio.h>
-#include <utility>
 
 #include "conv.h"
 #include "exr.h"
@@ -12,6 +7,36 @@
 #include "model.h"
 #include "unet.h"
 #include "transfer.h"
+
+static void apply_convolutions(const Layer& layer, std::unique_ptr<float[]>& input, 
+                                size_t h, size_t w, size_t& c) {
+    for (size_t i = 0; i < layer.num_convs; i++) {
+        size_t out_c = layer.weights[i].out_channels;
+        auto output = std::make_unique<float[]>(h * w * out_c);
+        conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
+                            reinterpret_cast<const _Float16*>(layer.weights[i].data), 
+                            reinterpret_cast<const _Float16*>(layer.biases[i].data));
+        c = out_c;
+        input = std::move(output);
+    }
+}
+
+static void apply_post_op(LayerPostOp post_op, std::unique_ptr<float[]>& input,
+                          size_t& h, size_t& w, size_t c) {
+    if (post_op == LayerPostOp::MAX_POOL) {
+        auto output = std::make_unique<float[]>(h * w * c);
+        max_pool_nhwc(input.get(), output.get(), h, w, c);
+        input = std::move(output);
+        h = h / 2;
+        w = w / 2;
+    } else if (post_op == LayerPostOp::NN_UPSAMPLE) {
+        auto output = std::make_unique<float[]>(h * w * c * 4);
+        nn_upsample_nhwc(input.get(), output.get(), h, w, c);
+        input = std::move(output);
+        h = h * 2;
+        w = w * 2;
+    }
+}
 
 void oidn_unet(EXR::Image& input_img,
                UNetModel& model,
@@ -54,31 +79,9 @@ void oidn_unet(EXR::Image& input_img,
     
     for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
         const auto& layer = model.encoder_layers[layer_idx];
-        const auto& post_op = layer.post_op;
-        std::unique_ptr<float[]> output;
-        for (size_t i = 0; i < layer.num_convs; i++) {
-            size_t out_c = layer.weights[i].out_channels;
-            output = std::make_unique<float[]>(h * w * out_c);
-            conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
-                                reinterpret_cast<const _Float16*>(layer.weights[i].data), 
-                                reinterpret_cast<const _Float16*>(layer.biases[i].data));
-            c = out_c;
-            input = std::move(output);
-        }
         
-        if (post_op == LayerPostOp::MAX_POOL) {
-            output = std::make_unique<float[]>(h * w * c);
-            max_pool_nhwc(input.get(), output.get(), h, w, c);
-            input = std::move(output);
-            h = h / 2;
-            w = w / 2;
-        } else if (post_op == LayerPostOp::NN_UPSAMPLE) {
-            output = std::make_unique<float[]>(h * w * c * 4);
-            nn_upsample_nhwc(input.get(), output.get(), h, w, c);
-            input = std::move(output);
-            h = h * 2;
-            w = w * 2;
-        }
+        apply_convolutions(layer, input, h, w, c);
+        apply_post_op(layer.post_op, input, h, w, c);
         
         auto saved = std::make_unique<float[]>(h * w * c);
         std::copy(input.get(), input.get() + h * w * c, saved.get());
@@ -88,15 +91,10 @@ void oidn_unet(EXR::Image& input_img,
     int skip_idx = 3;
     for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
         const auto& layer = model.decoder_layers[layer_idx];
-        const auto& post_op = layer.post_op;
-        std::unique_ptr<float[]> output;
+        
         if (skip_idx >= 0) {
-            const auto& skip = (skip_idx == 3) ? encode_outputs[3] : 
-                               (skip_idx == 2) ? encode_outputs[2] :
-                               (skip_idx == 1) ? encode_outputs[1] : original_input;
-            size_t skip_c = (skip_idx == 3) ? model.encoder_layers[3].weights->out_channels :
-                            (skip_idx == 2) ? model.encoder_layers[2].weights->out_channels :
-                            (skip_idx == 1) ? model.encoder_layers[1].weights->out_channels : c0;
+            const auto& skip = (skip_idx == 0) ?  original_input : encode_outputs[skip_idx];
+            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].weights->out_channels;
             auto concat = std::make_unique<float[]>(h * w * (c + skip_c));
             #pragma omp parallel for
             for (size_t i = 0; i < h * w; i++) {
@@ -107,22 +105,9 @@ void oidn_unet(EXR::Image& input_img,
             input = std::move(concat);
             skip_idx--;
         }
-        for (size_t i = 0; i < layer.num_convs; i++) {
-            size_t out_c = layer.weights[i].out_channels;
-            output = std::make_unique<float[]>(h * w * out_c);
-            conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
-                                reinterpret_cast<const _Float16*>(layer.weights[i].data), 
-                                reinterpret_cast<const _Float16*>(layer.biases[i].data));
-            c = out_c;
-            input = std::move(output);
-        }
-        if (post_op == LayerPostOp::NN_UPSAMPLE) {
-            output = std::make_unique<float[]>(h * w * c * 4);
-            nn_upsample_nhwc(input.get(), output.get(), h, w, c);
-            input = std::move(output);
-            h = h * 2;
-            w = w * 2;
-        }
+        
+        apply_convolutions(layer, input, h, w, c);
+        apply_post_op(layer.post_op, input, h, w, c);
     }
     
     auto output = std::make_unique<float[]>(h0 * w0 * c);
