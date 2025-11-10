@@ -52,7 +52,7 @@ void oidn_unet(EXR::Image& input_img,
     auto original_input = std::make_unique<float[]>(h * w * c);
     std::copy(input.get(), input.get() + h * w * c, original_input.get());
     
-    for (size_t layer_idx = 0; layer_idx < model.encoder_layers.size(); layer_idx++) {
+    for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
         const auto& [layer, post_op] = model.encoder_layers[layer_idx];
         std::unique_ptr<float[]> output;
         for (auto [weights, bias]: layer) {
@@ -85,7 +85,8 @@ void oidn_unet(EXR::Image& input_img,
     }
     
     int skip_idx = 3;
-    for (const auto& [layer, post_op]: model.decoder_layers) {
+    for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
+        const auto& [layer, post_op] = model.decoder_layers[layer_idx];
         std::unique_ptr<float[]> output;
         if (skip_idx >= 0) {
             const auto& skip = (skip_idx == 3) ? encode_outputs[3] : 

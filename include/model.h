@@ -6,9 +6,10 @@
 class UNetModel {
 public:
     UNetModel(const std::string& model_name, TzaFile& weights);
-    std::vector<Layer> encoder_layers;
-    std::vector<Layer> decoder_layers;
-    std::string model_name;
+    Layer* encoder_layers;
+    Layer* decoder_layers;
+    size_t num_encoder_layers;
+    size_t num_decoder_layers;
 };
 
 #endif // MODEL_H
