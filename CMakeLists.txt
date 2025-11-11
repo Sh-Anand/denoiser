@@ -1,8 +1,10 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.31)
 
 if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
   set(CMAKE_CUDA_HOST_COMPILER "/usr/bin/g++-14" CACHE FILEPATH "Host compiler for NVCC" FORCE)
 endif()
+
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-14" CACHE FILEPATH "C++ compiler" FORCE)
 
 project(denoiser LANGUAGES CXX CUDA)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
