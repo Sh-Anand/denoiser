@@ -2,8 +2,8 @@
 
 #include <cuda_fp16.h>
 
-__global__ void conv_relu_nhwc_oihw_cuda(const float* input,
-                                     float* output,
+__global__ void conv_relu_nhwc_oihw_cuda(const half* input,
+                                     half* output,
                                      size_t in_h,
                                      size_t in_w,
                                      size_t filter_h,
@@ -22,7 +22,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const float* input,
     const size_t pad_h = filter_h / 2;
     const size_t pad_w = filter_w / 2;
 
-    float sum = (float) bias[o];
+    half sum = bias[o];
     for (int i = 0; i < in_c; i++) {
         for (int fh = 0; fh < filter_h; fh++) {
             const int ih = h + fh - pad_h;
@@ -32,18 +32,17 @@ __global__ void conv_relu_nhwc_oihw_cuda(const float* input,
                 const int iw = w + fw - pad_w;
                 if (iw < 0 || iw >= in_w)
                     continue;
-                sum += input[(ih * in_w + iw) * in_c + i] *
-                       (float) weights[o * in_c * filter_h * filter_w +
-                               i * filter_h * filter_w +
-                               fh * filter_w + fw];
+                sum = __hadd(sum, __hmul(input[(ih * in_w + iw) * in_c + i], weights[o * in_c * filter_h * filter_w +
+                                                                                    i * filter_h * filter_w +
+                                                                                    fh * filter_w + fw]));
             }
         }
     }
-    output[(h * in_w + w) * out_c + o] = fmaxf(0.f, sum);
+    output[(h * in_w + w) * out_c + o] = __hmax(0.f, sum);
 }
 
-__global__ void max_pool_nhwc_cuda(const float* input,
-                               float* output,
+__global__ void max_pool_nhwc_cuda(const half* input,
+                               half* output,
                                size_t in_h,
                                size_t in_w,
                                size_t in_c) {
@@ -60,15 +59,15 @@ __global__ void max_pool_nhwc_cuda(const float* input,
     const int ih = h * 2;
     const int iw = w * 2;
 
-    float max_val = input[(ih * in_w + iw) * in_c + c];
-    max_val = fmaxf(max_val, input[(ih * in_w + (iw + 1)) * in_c + c]);
-    max_val = fmaxf(max_val, input[((ih + 1) * in_w + iw) * in_c + c]);
-    max_val = fmaxf(max_val, input[((ih + 1) * in_w + (iw + 1)) * in_c + c]);
+    half max_val = input[(ih * in_w + iw) * in_c + c];
+    max_val = __hmax(max_val, input[(ih * in_w + (iw + 1)) * in_c + c]);
+    max_val = __hmax(max_val, input[((ih + 1) * in_w + iw) * in_c + c]);
+    max_val = __hmax(max_val, input[((ih + 1) * in_w + (iw + 1)) * in_c + c]);
     output[(h * out_w + w) * in_c + c] = max_val;
 }
 
-__global__ void avg_pool_nhwc_cuda(const float* input,
-                               float* output,
+__global__ void avg_pool_nhwc_cuda(const half* input,
+                               half* output,
                                size_t in_h,
                                size_t in_w,
                                size_t in_c) {
@@ -86,15 +85,15 @@ __global__ void avg_pool_nhwc_cuda(const float* input,
     const int ih = h * 2;
     const int iw = w * 2;
 
-    float avg_val = input[(ih * in_w + iw) * in_c + c];
-    avg_val += input[(ih * in_w + (iw + 1)) * in_c + c];
-    avg_val += input[((ih + 1) * in_w + iw) * in_c + c];
-    avg_val += input[((ih + 1) * in_w + (iw + 1)) * in_c + c];
-    output[(h * out_w + w) * in_c + c] = avg_val * 0.25f;
+    half avg_val = input[(ih * in_w + iw) * in_c + c];
+    avg_val = __hadd(avg_val, input[(ih * in_w + (iw + 1)) * in_c + c]);
+    avg_val = __hadd(avg_val, input[((ih + 1) * in_w + iw) * in_c + c]);
+    avg_val = __hadd(avg_val, input[((ih + 1) * in_w + (iw + 1)) * in_c + c]);
+    output[(h * out_w + w) * in_c + c] = __hdiv(avg_val, 4.0f);
 }
 
-__global__ void nn_upsample_nhwc_cuda(const float* input,
-                                  float* output,
+__global__ void nn_upsample_nhwc_cuda(const half* input,
+                                  half* output,
                                   size_t in_h,
                                   size_t in_w,
                                   size_t in_c) {
@@ -108,5 +107,5 @@ __global__ void nn_upsample_nhwc_cuda(const float* input,
     if (h >= out_h || w >= out_w || c >= in_c)
         return;
 
-    output[(h * out_w + w) * in_c + c] = input[(h / 2 * in_w + w / 2) * in_c + c];
+    output[(h * out_w + w) * in_c + c] = input[((h / 2) * in_w + (w / 2)) * in_c + c];
 }
