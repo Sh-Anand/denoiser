@@ -69,8 +69,8 @@ static void apply_convolutions(const Layer& layer, float*& d_input, size_t& h, s
         grid = dim3((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
         conv_relu_nhwc_oihw_cuda<<<grid, block>>>(
             d_input, d_output, h, w, 3, 3, c, out_c,
-            reinterpret_cast<const __half*>(layer.weights[i].data),
-            reinterpret_cast<const __half*>(layer.biases[i].data));
+            layer.weights[i].data.half_data,
+            layer.biases[i].data.half_data);
         CUDA_ERR(cudaGetLastError());
         CUDA_ERR(cudaDeviceSynchronize());
         

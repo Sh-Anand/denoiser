@@ -6,8 +6,19 @@
 #include <string_view>
 #include <vector>
 
+#ifdef __CUDACC__
+#include <cuda_fp16.h>
+#endif
+
+union TzaTensorStrippedData {
+    #ifdef __CUDACC__
+    const half* half_data;
+    #endif
+    const _Float16* float16_data;
+};
+
 struct TzaTensorStripped {
-    const uint8_t* data;
+    TzaTensorStrippedData data;
     uint32_t out_channels;
 };
 
