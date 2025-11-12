@@ -14,8 +14,8 @@ static void apply_convolutions(const Layer& layer, const UNetModel& model, std::
         size_t out_c = layer.out_channels[i];
         auto output = std::make_unique<float[]>(h * w * out_c);
         conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
-                            model.weights[layer.weight_idxs[i]].float16_data, 
-                            model.weights[layer.bias_idxs[i]].float16_data);
+                            model.weights->float16_data + layer.weight_idxs[i],
+                            model.weights->float16_data + layer.bias_idxs[i]);
         c = out_c;
         input = std::move(output);
     }
