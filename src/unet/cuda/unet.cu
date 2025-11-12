@@ -60,12 +60,10 @@ __global__ static void cuda_concat_skip(const half* input, size_t c_input,
     }
 }
 
-static void apply_convolutions(const Layer& layer, const UNetModel& model, half*& d_input, size_t& h, size_t& w, size_t& c, 
+static void apply_convolutions(const Layer& layer, const UNetModel& model, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t& c, 
                                 const dim3& block, dim3& grid) {
     for (size_t i = 0; i < layer.num_convs; i++) {
         size_t out_c = layer.out_channels[i];
-        half* d_output;
-        CUDA_ERR(cudaMalloc(&d_output, h * w * out_c * sizeof(half)));
         
         grid = dim3((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
         conv_relu_nhwc_oihw_cuda<<<grid, block>>>(
@@ -75,42 +73,34 @@ static void apply_convolutions(const Layer& layer, const UNetModel& model, half*
         CUDA_ERR(cudaGetLastError()); 
         CUDA_ERR(cudaDeviceSynchronize());
         
-        CUDA_ERR(cudaFree(d_input));
-        d_input = d_output;
         c = out_c;
+        std::swap(d_input, d_output);
     }
 }
 
-static void apply_post_op(LayerPostOp post_op, half*& d_input, size_t& h, size_t& w, size_t c,
+static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t c,
                           const dim3& block, dim3& grid) {
     if (post_op == LayerPostOp::MAX_POOL) {
         size_t out_h = h / 2;
         size_t out_w = w / 2;
-        half* d_output;
-        CUDA_ERR(cudaMalloc(&d_output, out_h * out_w * c * sizeof(half)));
         
         grid = dim3((out_h + block.x - 1) / block.x, (out_w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
         max_pool_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
         CUDA_ERR(cudaDeviceSynchronize());
         
-        CUDA_ERR(cudaFree(d_input));
-        d_input = d_output;
+        std::swap(d_input, d_output);
         h = out_h;
         w = out_w;
     } else if (post_op == LayerPostOp::NN_UPSAMPLE) {
         size_t out_h = h * 2;
         size_t out_w = w * 2;
-        half* d_output;
-        CUDA_ERR(cudaMalloc(&d_output, out_h * out_w * c * sizeof(half)));
-        
         grid = dim3((out_h + block.x - 1) / block.x, (out_w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
         nn_upsample_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
         CUDA_ERR(cudaDeviceSynchronize());
         
-        CUDA_ERR(cudaFree(d_input));
-        d_input = d_output;
+        std::swap(d_input, d_output);
         h = out_h;
         w = out_w;
     }
@@ -133,13 +123,13 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     size_t hx = h, wx = w, cx = c;
     size_t max_sz = hx * wx * cx * 2;
     size_t tot_encode_outputs_sz = 0;
+    size_t* encode_output_offset = new size_t[model.num_encoder_layers];
+    encode_output_offset[0] = 0;
     for (int i = 0; i< model.num_encoder_layers; i++) {
         for (int j = 0; j < model.encoder_layers[i].num_convs; j++) {
             cx = model.encoder_layers[i].out_channels[j];
             max_sz = max(max_sz, hx * wx * cx);
         }
-        if (i < model.num_encoder_layers - 1)
-            tot_encode_outputs_sz += hx * wx * cx;
         if (model.encoder_layers[i].post_op == LayerPostOp::MAX_POOL) {
             hx /= 2;
             wx /= 2;
@@ -147,6 +137,12 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
             hx *= 2;
             wx *= 2;
         }
+
+        if (i < model.num_encoder_layers - 1) {
+            tot_encode_outputs_sz += hx * wx * cx;
+            encode_output_offset[i + 1] = encode_output_offset[i] + hx * wx * cx;
+        }
+
         max_sz = max(max_sz, hx * wx * cx);
     }
 
@@ -172,82 +168,66 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     const float normScale = Transfer::compute_norm_scale();
     const float rcpNormScale = Transfer::compute_rcp_norm_scale();
 
+    half* d_encode_outputs;
+    CUDA_ERR(cudaMalloc(&d_encode_outputs, tot_encode_outputs_sz * sizeof(half)));
 
-    float* d_input_img;
-    CUDA_ERR(cudaMalloc(&d_input_img, h0 * w0 * c0 * sizeof(float)));
-    CUDA_ERR(cudaMemcpy(d_input_img, input_img.tensor.data(), h0 * w0 * c0 * sizeof(float), cudaMemcpyHostToDevice));
-    
-    half* d_input;
-    CUDA_ERR(cudaMalloc(&d_input, h * w * c * sizeof(half)));
+    half* d_buf0, *d_buf1;
+    CUDA_ERR(cudaMalloc(&d_buf0, max_sz * sizeof(half)));
+    CUDA_ERR(cudaMalloc(&d_buf1, max_sz * sizeof(half)));
+
+    CUDA_ERR(cudaMemcpy(d_buf0, input_img.tensor.data(), h0 * w0 * c0 * sizeof(float), cudaMemcpyHostToDevice));
     
     dim3 block(8, 8, 4);
     dim3 grid((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
-    cuda_apply_hdr_transfer_function<<<grid, block>>>(d_input_img, h0, w0, c0, d_input, h, w, normScale);
+    cuda_apply_hdr_transfer_function<<<grid, block>>>((float *)d_buf0, h0, w0, c0, d_buf1, h, w, normScale);
     CUDA_ERR(cudaGetLastError());
     CUDA_ERR(cudaDeviceSynchronize());
-    CUDA_ERR(cudaFree(d_input_img));
-    
-    half* d_original_input;
-    CUDA_ERR(cudaMalloc(&d_original_input, h * w * c * sizeof(half)));
-    CUDA_ERR(cudaMemcpy(d_original_input, d_input, h * w * c * sizeof(half), cudaMemcpyDeviceToDevice));
-    
-    half** d_encode_outputs = new half*[model.num_encoder_layers];
+
+    CUDA_ERR(cudaMemcpy(d_encode_outputs, d_buf1, h0 * w0 * c0 * sizeof(half), cudaMemcpyDeviceToDevice));
+
+    std::swap(d_buf0, d_buf1);    
     
     for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
         const Layer& layer = model.encoder_layers[layer_idx];
-        
-        apply_convolutions(layer, model, d_input, h, w, c, block, grid);
-        apply_post_op(layer.post_op, d_input, h, w, c, block, grid);
-        
-        CUDA_ERR(cudaMalloc(&d_encode_outputs[layer_idx], h * w * c * sizeof(half)));
-        CUDA_ERR(cudaMemcpy(d_encode_outputs[layer_idx], d_input, h * w * c * sizeof(half), cudaMemcpyDeviceToDevice));
+        half* d_encode_output = layer_idx == model.num_encoder_layers - 1 ? d_buf1 : d_encode_outputs + encode_output_offset[layer_idx + 1];
+        apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c, block, grid);
+        apply_post_op(layer.post_op, d_buf0, d_encode_output, h, w, c, block, grid);
     }
     
-    int skip_idx = 3;
+    skip_idx = 4;
     for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
         const Layer& layer = model.decoder_layers[layer_idx];
         
         if (skip_idx >= 0) {
-            const half* d_skip = (skip_idx == 0) ? d_original_input : d_encode_outputs[skip_idx];
-            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0];
-            
-            half* d_concat;
-            CUDA_ERR(cudaMalloc(&d_concat, h * w * (c + skip_c) * sizeof(half)));
+            const half* d_skip = d_encode_outputs + encode_output_offset[skip_idx];
+            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx - 1].out_channels[0];
             
             dim3 concat_block(256);
             dim3 concat_grid((h * w + concat_block.x - 1) / concat_block.x);
-            cuda_concat_skip<<<concat_grid, concat_block>>>(d_input, c, d_skip, skip_c, d_concat, h, w);
+            cuda_concat_skip<<<concat_grid, concat_block>>>(d_buf0, c, d_skip, skip_c, d_buf1, h, w);
             CUDA_ERR(cudaGetLastError());
             CUDA_ERR(cudaDeviceSynchronize());
             
-            CUDA_ERR(cudaFree(d_input));
-            d_input = d_concat;
+            std::swap(d_buf0, d_buf1);
             c = c + skip_c;
             skip_idx--;
         }
         
-        apply_convolutions(layer, model, d_input, h, w, c, block, grid);
-        apply_post_op(layer.post_op, d_input, h, w, c, block, grid);
+        apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c, block, grid);
+        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c, block, grid);
     }
     
-    float* d_output;
-    CUDA_ERR(cudaMalloc(&d_output, h0 * w0 * c * sizeof(float)));
-    
     grid = dim3((h0 + block.x - 1) / block.x, (w0 + block.y - 1) / block.y, (c + block.z - 1) / block.z);
-    cuda_apply_inverse_hdr_transfer_function<<<grid, block>>>(d_input, h0, w0, c, w, d_output, rcpNormScale);
+    cuda_apply_inverse_hdr_transfer_function<<<grid, block>>>(d_buf0, h0, w0, c, w, (float *)d_buf1, rcpNormScale);
     CUDA_ERR(cudaGetLastError());
     CUDA_ERR(cudaDeviceSynchronize());
     
     output_img = new float[h0 * w0 * c];
-    CUDA_ERR(cudaMemcpy(output_img, d_output, h0 * w0 * c * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_ERR(cudaMemcpy(output_img, (float *)d_buf1, h0 * w0 * c * sizeof(float), cudaMemcpyDeviceToHost));
     
-    CUDA_ERR(cudaFree(d_input));
-    CUDA_ERR(cudaFree(d_output));
-    CUDA_ERR(cudaFree(d_original_input));
-    for (size_t i = 0; i < model.num_encoder_layers; i++) {
-        CUDA_ERR(cudaFree(d_encode_outputs[i]));
-    }
-    delete[] d_encode_outputs;
-    
+    CUDA_ERR(cudaFree(d_buf0));
+    CUDA_ERR(cudaFree(d_buf1));
+    CUDA_ERR(cudaFree(d_encode_outputs));
+    delete[] encode_output_offset;
     freeUNetModel(model, true);
 }
