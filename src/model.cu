@@ -5,57 +5,45 @@
 // If cuda, assume weights are gpu virtual addresses
 UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool cuda) {
     UNetModel model;
-    std::vector<std::vector<const TzaTensor*>> encoder_layers;
-    std::vector<LayerPostOp> encoder_post_ops;
-    std::vector<std::vector<const TzaTensor*>> decoder_layers;
-    std::vector<LayerPostOp> decoder_post_ops;
-    
+    std::vector<std::vector<const TzaTensor*>> layers;
+    std::vector<LayerPostOp> post_ops;
+    int decoder_layer_offset = 0;
     if (model_name == "rt_hdr") {
-        encoder_layers = {
+        layers = {
             {weights.find("enc_conv0.weight"), weights.find("enc_conv0.bias")},
             {weights.find("enc_conv1.weight"), weights.find("enc_conv1.bias")},
             {weights.find("enc_conv2.weight"), weights.find("enc_conv2.bias")},
             {weights.find("enc_conv3.weight"), weights.find("enc_conv3.bias")},
             {weights.find("enc_conv4.weight"), weights.find("enc_conv4.bias")},
-            {weights.find("enc_conv5a.weight"), weights.find("enc_conv5a.bias"), weights.find("enc_conv5b.weight"), weights.find("enc_conv5b.bias")}
-        };
-
-        encoder_post_ops = {
-            LayerPostOp::NONE,
-            LayerPostOp::MAX_POOL,
-            LayerPostOp::MAX_POOL,
-            LayerPostOp::MAX_POOL,
-            LayerPostOp::MAX_POOL,
-            LayerPostOp::NN_UPSAMPLE
-        };
-
-        decoder_layers = {
+            {weights.find("enc_conv5a.weight"), weights.find("enc_conv5a.bias"), weights.find("enc_conv5b.weight"), weights.find("enc_conv5b.bias")},
             {weights.find("dec_conv4a.weight"), weights.find("dec_conv4a.bias"), weights.find("dec_conv4b.weight"), weights.find("dec_conv4b.bias")},
             {weights.find("dec_conv3a.weight"), weights.find("dec_conv3a.bias"), weights.find("dec_conv3b.weight"), weights.find("dec_conv3b.bias")},
             {weights.find("dec_conv2a.weight"), weights.find("dec_conv2a.bias"), weights.find("dec_conv2b.weight"), weights.find("dec_conv2b.bias")},
             {weights.find("dec_conv1a.weight"), weights.find("dec_conv1a.bias"), weights.find("dec_conv1b.weight"), weights.find("dec_conv1b.bias")},
             {weights.find("dec_conv0.weight"), weights.find("dec_conv0.bias")}
         };
-        
-        decoder_post_ops = {
+
+        post_ops = {
+            LayerPostOp::NONE,
+            LayerPostOp::MAX_POOL,
+            LayerPostOp::MAX_POOL,
+            LayerPostOp::MAX_POOL,
+            LayerPostOp::MAX_POOL,
+            LayerPostOp::NN_UPSAMPLE,
             LayerPostOp::NN_UPSAMPLE,
             LayerPostOp::NN_UPSAMPLE,
             LayerPostOp::NN_UPSAMPLE,
             LayerPostOp::NONE,
             LayerPostOp::NONE
         };
+
+        decoder_layer_offset = 6;
     }
 
     size_t total_elements = 0;
-    for (size_t i = 0; i < encoder_layers.size(); i++) {
-        for (size_t j = 0; j < encoder_layers[i].size(); j++) {
-            total_elements += encoder_layers[i][j]->elementCount();
-        }
-    }
-
-    for (size_t i = 0; i < decoder_layers.size(); i++) {
-        for (size_t j = 0; j < decoder_layers[i].size(); j++) {
-            total_elements += decoder_layers[i][j]->elementCount();
+    for (size_t i = 0; i < layers.size(); i++) {
+        for (size_t j = 0; j < layers[i].size(); j++) {
+            total_elements += layers[i][j]->elementCount();
         }
     }
 
@@ -69,60 +57,54 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
     }
 
     size_t offset = 0;
-    model.encoder_layers = new Layer[encoder_layers.size()];
-    model.decoder_layers = new Layer[decoder_layers.size()];
-    model.num_encoder_layers = encoder_layers.size();
-    model.num_decoder_layers = decoder_layers.size();
+    model.num_encoder_layers = decoder_layer_offset;
+    model.num_decoder_layers = layers.size() - decoder_layer_offset;
+    model.encoder_layers = new Layer[model.num_encoder_layers];
+    model.decoder_layers = new Layer[model.num_decoder_layers];
 
-    for (int i = 0; i < encoder_layers.size(); i++) {
-        model.encoder_layers[i].weight_idxs = new uint32_t[encoder_layers[i].size()];
-        model.encoder_layers[i].bias_idxs = new uint32_t[encoder_layers[i].size()];
-        model.encoder_layers[i].out_channels = new uint32_t[encoder_layers[i].size()];
-        model.encoder_layers[i].num_convs = encoder_layers[i].size()/2;
-        model.encoder_layers[i].post_op = encoder_post_ops[i];
-        for (int j = 0; j < encoder_layers[i].size()/2; j++) {
-            int weight_idx = j*2, bias_idx = j*2+1;
-            model.encoder_layers[i].weight_idxs[j] = offset;
-            if (cuda) {
-                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), encoder_layers[i][weight_idx]->data.data(), encoder_layers[i][weight_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
-            } else {
-                memcpy((void *)(model.weights->float16_data + offset), encoder_layers[i][weight_idx]->data.data(), encoder_layers[i][weight_idx]->elementCount() * sizeof(_Float16));
-            }
-            offset += encoder_layers[i][weight_idx]->elementCount();
-            model.encoder_layers[i].bias_idxs[j] = offset;
-            if (cuda) {
-                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), encoder_layers[i][bias_idx]->data.data(), encoder_layers[i][bias_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
-            } else {
-                memcpy((void *)(model.weights->float16_data + offset), encoder_layers[i][bias_idx]->data.data(), encoder_layers[i][bias_idx]->elementCount() * sizeof(_Float16));
-            }
-            offset += encoder_layers[i][bias_idx]->elementCount();
-            model.encoder_layers[i].out_channels[j] = encoder_layers[i][weight_idx]->dims[0];
+    for (int i = 0; i < layers.size(); i++) {
+        int decoder_layer_idx = i - decoder_layer_offset;
+
+        if (decoder_layer_idx >= 0) {
+            model.decoder_layers[decoder_layer_idx].weight_idxs = new uint32_t[layers[i].size()];
+            model.decoder_layers[decoder_layer_idx].bias_idxs = new uint32_t[layers[i].size()];
+            model.decoder_layers[decoder_layer_idx].out_channels = new uint32_t[layers[i].size()];
+            model.decoder_layers[decoder_layer_idx].num_convs = layers[i].size()/2;
+            model.decoder_layers[decoder_layer_idx].post_op = post_ops[i];
+        } else {
+            model.encoder_layers[i].weight_idxs = new uint32_t[layers[i].size()];
+            model.encoder_layers[i].bias_idxs = new uint32_t[layers[i].size()];
+            model.encoder_layers[i].out_channels = new uint32_t[layers[i].size()];
+            model.encoder_layers[i].num_convs = layers[i].size()/2;
+            model.encoder_layers[i].post_op = post_ops[i];
         }
-    }
-
-    for (int i = 0; i < decoder_layers.size(); i++) {
-        model.decoder_layers[i].weight_idxs = new uint32_t[decoder_layers[i].size()];
-        model.decoder_layers[i].bias_idxs = new uint32_t[decoder_layers[i].size()];
-        model.decoder_layers[i].out_channels = new uint32_t[decoder_layers[i].size()];
-        model.decoder_layers[i].num_convs = decoder_layers[i].size()/2;
-        model.decoder_layers[i].post_op = decoder_post_ops[i];
-        for (int j = 0; j < decoder_layers[i].size()/2; j++) {
+        for (int j = 0; j < layers[i].size()/2; j++) {
             int weight_idx = j*2, bias_idx = j*2+1;
-            model.decoder_layers[i].weight_idxs[j] = offset;
+            if (decoder_layer_idx >= 0)
+                model.decoder_layers[decoder_layer_idx].weight_idxs[j] = offset;
+            else
+                model.encoder_layers[i].weight_idxs[j] = offset;
             if (cuda) {
-                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), decoder_layers[i][weight_idx]->data.data(), decoder_layers[i][weight_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
+                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), layers[i][weight_idx]->data.data(), layers[i][weight_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
             } else {
-                memcpy((void *)(model.weights->float16_data + offset), decoder_layers[i][weight_idx]->data.data(), decoder_layers[i][weight_idx]->elementCount() * sizeof(_Float16));
+                memcpy((void *)(model.weights->float16_data + offset), layers[i][weight_idx]->data.data(), layers[i][weight_idx]->elementCount() * sizeof(_Float16));
             }
-            offset += decoder_layers[i][weight_idx]->elementCount();
-            model.decoder_layers[i].bias_idxs[j] = offset;
+
+            offset += layers[i][weight_idx]->elementCount();
+            if (decoder_layer_idx >= 0)
+                model.decoder_layers[decoder_layer_idx].bias_idxs[j] = offset;
+            else
+                model.encoder_layers[i].bias_idxs[j] = offset;
             if (cuda) {
-                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), decoder_layers[i][bias_idx]->data.data(), decoder_layers[i][bias_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
+                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), layers[i][bias_idx]->data.data(), layers[i][bias_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
             } else {
-                memcpy((void *)(model.weights->float16_data + offset), decoder_layers[i][bias_idx]->data.data(), decoder_layers[i][bias_idx]->elementCount() * sizeof(_Float16));
+                memcpy((void *)(model.weights->float16_data + offset), layers[i][bias_idx]->data.data(), layers[i][bias_idx]->elementCount() * sizeof(_Float16));
             }
-            offset += decoder_layers[i][bias_idx]->elementCount();
-            model.decoder_layers[i].out_channels[j] = decoder_layers[i][weight_idx]->dims[0];
+            offset += layers[i][bias_idx]->elementCount();
+            if (decoder_layer_idx >= 0)
+                model.decoder_layers[decoder_layer_idx].out_channels[j] = layers[i][weight_idx]->dims[0];
+            else
+                model.encoder_layers[i].out_channels[j] = layers[i][weight_idx]->dims[0];
         }
     }
     return model;
