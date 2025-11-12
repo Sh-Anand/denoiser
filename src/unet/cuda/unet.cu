@@ -128,6 +128,46 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     size_t h = h_padded;
     size_t w = w_padded;
     size_t c = c0;
+
+    // precompute largest matrix size
+    size_t hx = h, wx = w, cx = c;
+    size_t max_sz = hx * wx * cx * 2;
+    size_t tot_encode_outputs_sz = 0;
+    for (int i = 0; i< model.num_encoder_layers; i++) {
+        for (int j = 0; j < model.encoder_layers[i].num_convs; j++) {
+            cx = model.encoder_layers[i].out_channels[j];
+            max_sz = max(max_sz, hx * wx * cx);
+        }
+        if (i < model.num_encoder_layers - 1)
+            tot_encode_outputs_sz += hx * wx * cx;
+        if (model.encoder_layers[i].post_op == LayerPostOp::MAX_POOL) {
+            hx /= 2;
+            wx /= 2;
+        } else if (model.encoder_layers[i].post_op == LayerPostOp::NN_UPSAMPLE) {
+            hx *= 2;
+            wx *= 2;
+        }
+        max_sz = max(max_sz, hx * wx * cx);
+    }
+
+    int skip_idx = 3;
+    for (int i = 0; i< model.num_decoder_layers; i++) {
+        if (skip_idx >= 0) {
+            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0];
+            cx += skip_c;
+            max_sz = max(max_sz, hx * wx * cx);
+            skip_idx--;
+        }
+        for (int j = 0; j < model.decoder_layers[i].num_convs; j++) {
+            cx = model.decoder_layers[i].out_channels[j];
+            max_sz = max(max_sz, hx * wx * cx);
+        }
+        if (model.decoder_layers[i].post_op == LayerPostOp::NN_UPSAMPLE) {
+            hx *= 2;
+            wx *= 2;
+        }
+        max_sz = max(max_sz, hx * wx * cx);
+    }
     
     const float normScale = Transfer::compute_norm_scale();
     const float rcpNormScale = Transfer::compute_rcp_norm_scale();
