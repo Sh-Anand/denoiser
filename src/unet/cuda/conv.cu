@@ -17,7 +17,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     const int block_threads = blockDim.x * blockDim.y * blockDim.z;
     const int linear_tid = (threadIdx.z * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x;
     const int local_hw = threadIdx.y * blockDim.x + threadIdx.x;
-    
+
     const int pad_h = static_cast<int>(filter_h) / 2;
     const int pad_w = static_cast<int>(filter_w) / 2;
     const int block_h0 = blockIdx.x * blockDim.x;
@@ -40,7 +40,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     half* tile_a = smem;
     half* tile_b = tile_a + tile_a_elems;
 
-    float acc = valid ? __half2float(bias[o]) : 0.0f;
+    half acc = valid ? bias[o] : __float2half(0.0f);
 
     for (size_t k_base = 0; k_base < total_k; k_base += CONV_IM2COL_TILE_K) {
         const int k_tile = static_cast<int>(min(static_cast<size_t>(CONV_IM2COL_TILE_K), total_k - k_base));
@@ -95,7 +95,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
             const half* a_row = tile_a + local_hw * CONV_IM2COL_TILE_K;
             const half* b_col = tile_b + threadIdx.z * CONV_IM2COL_TILE_K;
             for (int kk = 0; kk < k_tile; ++kk) {
-                acc += __half2float(a_row[kk]) * __half2float(b_col[kk]);
+                acc += a_row[kk] * b_col[kk];
             }
         }
 
@@ -103,7 +103,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     }
 
     if (valid) {
-        output[(h * in_w + w) * out_c + o] = __float2half(fmaxf(acc, 0.0f));
+        output[(h * in_w + w) * out_c + o] = fmaxf(acc, __float2half(0.0f));
     }
 }
 
