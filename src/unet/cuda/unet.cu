@@ -60,19 +60,19 @@ __global__ static void cuda_concat_skip(const half* input, size_t c_input,
     }
 }
 
-static void apply_convolutions(const Layer& layer, half*& d_input, size_t& h, size_t& w, size_t& c, 
+static void apply_convolutions(const Layer& layer, const UNetModel& model, half*& d_input, size_t& h, size_t& w, size_t& c, 
                                 const dim3& block, dim3& grid) {
     for (size_t i = 0; i < layer.num_convs; i++) {
-        size_t out_c = layer.weights[i].out_channels;
+        size_t out_c = layer.out_channels[i];
         half* d_output;
         CUDA_ERR(cudaMalloc(&d_output, h * w * out_c * sizeof(half)));
         
         grid = dim3((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
         conv_relu_nhwc_oihw_cuda<<<grid, block>>>(
             d_input, d_output, h, w, 3, 3, c, out_c,
-            layer.weights[i].data.half_data,
-            layer.biases[i].data.half_data);
-        CUDA_ERR(cudaGetLastError());
+            model.weights->half_data + layer.weight_idxs[i],
+            model.weights->half_data + layer.bias_idxs[i]);
+        CUDA_ERR(cudaGetLastError()); 
         CUDA_ERR(cudaDeviceSynchronize());
         
         CUDA_ERR(cudaFree(d_input));
@@ -131,31 +131,7 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     
     const float normScale = Transfer::compute_norm_scale();
     const float rcpNormScale = Transfer::compute_rcp_norm_scale();
-    
-    Layer* h_encoder_layers = new Layer[model.num_encoder_layers];
-    Layer* h_decoder_layers = new Layer[model.num_decoder_layers];
-    memcpy(h_encoder_layers, model.encoder_layers, model.num_encoder_layers * sizeof(Layer));
-    memcpy(h_decoder_layers, model.decoder_layers, model.num_decoder_layers * sizeof(Layer));
-    
-    for (size_t i = 0; i < model.num_encoder_layers; i++) {
-        size_t num_convs = h_encoder_layers[i].num_convs;
-        TzaTensorStripped* h_weights = new TzaTensorStripped[num_convs];
-        TzaTensorStripped* h_biases = new TzaTensorStripped[num_convs];
-        CUDA_ERR(cudaMemcpy(h_weights, h_encoder_layers[i].weights, num_convs * sizeof(TzaTensorStripped), cudaMemcpyDeviceToHost));
-        CUDA_ERR(cudaMemcpy(h_biases, h_encoder_layers[i].biases, num_convs * sizeof(TzaTensorStripped), cudaMemcpyDeviceToHost));
-        h_encoder_layers[i].weights = h_weights;
-        h_encoder_layers[i].biases = h_biases;
-    }
-    
-    for (size_t i = 0; i < model.num_decoder_layers; i++) {
-        size_t num_convs = h_decoder_layers[i].num_convs;
-        TzaTensorStripped* h_weights = new TzaTensorStripped[num_convs];
-        TzaTensorStripped* h_biases = new TzaTensorStripped[num_convs];
-        CUDA_ERR(cudaMemcpy(h_weights, h_decoder_layers[i].weights, num_convs * sizeof(TzaTensorStripped), cudaMemcpyDeviceToHost));
-        CUDA_ERR(cudaMemcpy(h_biases, h_decoder_layers[i].biases, num_convs * sizeof(TzaTensorStripped), cudaMemcpyDeviceToHost));
-        h_decoder_layers[i].weights = h_weights;
-        h_decoder_layers[i].biases = h_biases;
-    }
+
 
     float* d_input_img;
     CUDA_ERR(cudaMalloc(&d_input_img, h0 * w0 * c0 * sizeof(float)));
@@ -178,9 +154,9 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     half** d_encode_outputs = new half*[model.num_encoder_layers];
     
     for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
-        const Layer& layer = h_encoder_layers[layer_idx];
+        const Layer& layer = model.encoder_layers[layer_idx];
         
-        apply_convolutions(layer, d_input, h, w, c, block, grid);
+        apply_convolutions(layer, model, d_input, h, w, c, block, grid);
         apply_post_op(layer.post_op, d_input, h, w, c, block, grid);
         
         CUDA_ERR(cudaMalloc(&d_encode_outputs[layer_idx], h * w * c * sizeof(half)));
@@ -189,11 +165,11 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     
     int skip_idx = 3;
     for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
-        const Layer& layer = h_decoder_layers[layer_idx];
+        const Layer& layer = model.decoder_layers[layer_idx];
         
         if (skip_idx >= 0) {
             const half* d_skip = (skip_idx == 0) ? d_original_input : d_encode_outputs[skip_idx];
-            size_t skip_c = (skip_idx == 0) ? c0 : h_encoder_layers[skip_idx].weights->out_channels;
+            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0];
             
             half* d_concat;
             CUDA_ERR(cudaMalloc(&d_concat, h * w * (c + skip_c) * sizeof(half)));
@@ -210,7 +186,7 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
             skip_idx--;
         }
         
-        apply_convolutions(layer, d_input, h, w, c, block, grid);
+        apply_convolutions(layer, model, d_input, h, w, c, block, grid);
         apply_post_op(layer.post_op, d_input, h, w, c, block, grid);
     }
     
@@ -233,14 +209,5 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     }
     delete[] d_encode_outputs;
     
-    for (size_t i = 0; i < model.num_encoder_layers; i++) {
-        delete[] h_encoder_layers[i].weights;
-        delete[] h_encoder_layers[i].biases;
-    }
-    for (size_t i = 0; i < model.num_decoder_layers; i++) {
-        delete[] h_decoder_layers[i].weights;
-        delete[] h_decoder_layers[i].biases;
-    }
-    delete[] h_encoder_layers;
-    delete[] h_decoder_layers;
+    freeUNetModel(model, true);
 }

@@ -11,9 +11,10 @@ enum LayerPostOp {
 };
 
 struct Layer {
-    const TzaTensorStripped* weights;
-    const TzaTensorStripped* biases;
-    size_t num_convs;
+    uint32_t *weight_idxs;
+    uint32_t *bias_idxs;
+    uint32_t *out_channels;
+    uint32_t num_convs;
     LayerPostOp post_op;
 };
 

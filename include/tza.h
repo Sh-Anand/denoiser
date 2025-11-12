@@ -10,16 +10,11 @@
 #include <cuda_fp16.h>
 #endif
 
-union TzaTensorStrippedData {
+union TensorData {
     #ifdef __CUDACC__
     const half* half_data;
     #endif
     const _Float16* float16_data;
-};
-
-struct TzaTensorStripped {
-    TzaTensorStrippedData data;
-    uint32_t out_channels;
 };
 
 struct TzaTensor {
@@ -39,7 +34,6 @@ struct TzaTensor {
     std::size_t elementCount() const;
     std::size_t elementSizeBytes() const;
 
-    const TzaTensorStripped strip(bool cuda = false) const;
 };
 
 struct TzaFile {

@@ -8,14 +8,14 @@
 #include "unet.h"
 #include "transfer.h"
 
-static void apply_convolutions(const Layer& layer, std::unique_ptr<float[]>& input, 
+static void apply_convolutions(const Layer& layer, const UNetModel& model, std::unique_ptr<float[]>& input, 
                                 size_t h, size_t w, size_t& c) {
     for (size_t i = 0; i < layer.num_convs; i++) {
-        size_t out_c = layer.weights[i].out_channels;
+        size_t out_c = layer.out_channels[i];
         auto output = std::make_unique<float[]>(h * w * out_c);
         conv_relu_nhwc_oihw(input.get(), output.get(), h, w, 3, 3, c, out_c, 
-                            layer.weights[i].data.float16_data, 
-                            layer.biases[i].data.float16_data);
+                            model.weights[layer.weight_idxs[i]].float16_data, 
+                            model.weights[layer.bias_idxs[i]].float16_data);
         c = out_c;
         input = std::move(output);
     }
@@ -84,7 +84,7 @@ void oidn_unet(EXR::Image& input_img,
     for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
         const auto& layer = model.encoder_layers[layer_idx];
         
-        apply_convolutions(layer, input, h, w, c);
+        apply_convolutions(layer, model, input, h, w, c);
         apply_post_op(layer.post_op, input, h, w, c);
         
         auto saved = std::make_unique<float[]>(h * w * c);
@@ -98,7 +98,7 @@ void oidn_unet(EXR::Image& input_img,
         
         if (skip_idx >= 0) {
             const auto& skip = (skip_idx == 0) ?  original_input : encode_outputs[skip_idx];
-            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].weights->out_channels;
+            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0]; // TODO: hack
             auto concat = std::make_unique<float[]>(h * w * (c + skip_c));
             #pragma omp parallel for
             for (size_t i = 0; i < h * w; i++) {
@@ -110,7 +110,7 @@ void oidn_unet(EXR::Image& input_img,
             skip_idx--;
         }
         
-        apply_convolutions(layer, input, h, w, c);
+        apply_convolutions(layer, model, input, h, w, c);
         apply_post_op(layer.post_op, input, h, w, c);
     }
     

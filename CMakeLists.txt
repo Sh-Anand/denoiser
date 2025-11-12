@@ -26,7 +26,6 @@ set(APPLICATION_SOURCE
     src/application.cpp
     src/exr.cpp
     src/tza.cpp
-    src/tza.cu
     src/model.cu
     src/unet/cpu/unet.cpp
     src/unet/cuda/unet.cu

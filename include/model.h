@@ -10,10 +10,7 @@ struct UNetModel {
     size_t num_encoder_layers;
     size_t num_decoder_layers;
 
-    TzaTensorStripped* encoder_weights_storage;
-    TzaTensorStripped* encoder_biases_storage;
-    TzaTensorStripped* decoder_weights_storage;
-    TzaTensorStripped* decoder_biases_storage;
+    TensorData* weights;
 };
 
 UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool cuda = false);
