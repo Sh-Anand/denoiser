@@ -73,8 +73,7 @@ static void apply_convolutions(const Layer& layer, const UNetModel& model, half*
             d_input, d_output, h, w, 3, 3, c, out_c,
             model.weights->half_data + layer.weight_idxs[i],
             model.weights->half_data + layer.bias_idxs[i]);
-        CUDA_ERR(cudaGetLastError()); 
-        CUDA_ERR(cudaDeviceSynchronize());
+        CUDA_ERR(cudaGetLastError());
         
         c = out_c;
         std::swap(d_input, d_output);
@@ -90,7 +89,6 @@ static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, 
         grid = dim3((out_h + block.x - 1) / block.x, (out_w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
         max_pool_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
-        CUDA_ERR(cudaDeviceSynchronize());
         
         std::swap(d_input, d_output);
         h = out_h;
@@ -101,7 +99,6 @@ static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, 
         grid = dim3((out_h + block.x - 1) / block.x, (out_w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
         nn_upsample_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
-        CUDA_ERR(cudaDeviceSynchronize());
         
         std::swap(d_input, d_output);
         h = out_h;
@@ -189,7 +186,6 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     dim3 grid((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
     cuda_apply_hdr_transfer_function<<<grid, block>>>((float *)d_buf0, h0, w0, c0, d_buf1, h, w, normScale);
     CUDA_ERR(cudaGetLastError());
-    CUDA_ERR(cudaDeviceSynchronize());
 
     CUDA_ERR(cudaMemcpy(d_encode_outputs, d_buf1, padded_input_elems * sizeof(half), cudaMemcpyDeviceToDevice));
 
@@ -221,7 +217,6 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
             dim3 concat_grid((h * w + concat_block.x - 1) / concat_block.x);
             cuda_concat_skip<<<concat_grid, concat_block>>>(d_buf0, c, d_skip, skip_c, d_buf1, h, w);
             CUDA_ERR(cudaGetLastError());
-            CUDA_ERR(cudaDeviceSynchronize());
             
             std::swap(d_buf0, d_buf1);
             c = c + skip_c;
@@ -235,7 +230,6 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     grid = dim3((h0 + block.x - 1) / block.x, (w0 + block.y - 1) / block.y, (c + block.z - 1) / block.z);
     cuda_apply_inverse_hdr_transfer_function<<<grid, block>>>(d_buf0, h0, w0, c, w, (float *)d_buf1, rcpNormScale);
     CUDA_ERR(cudaGetLastError());
-    CUDA_ERR(cudaDeviceSynchronize());
     
     output_img = new float[h0 * w0 * c];
     CUDA_ERR(cudaMemcpy(output_img, (float *)d_buf1, h0 * w0 * c * sizeof(float), cudaMemcpyDeviceToHost));
