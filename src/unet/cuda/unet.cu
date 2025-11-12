@@ -119,12 +119,16 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     size_t w = w_padded;
     size_t c = c0;
 
-    // precompute largest matrix size
+    // precompute largest matrix size and encoder skip buffer requirements
+    const size_t h_pad = h;
+    const size_t w_pad = w;
     size_t hx = h, wx = w, cx = c;
     size_t max_sz = hx * wx * cx * 2;
-    size_t tot_encode_outputs_sz = 0;
+    const size_t padded_input_elems = h_pad * w_pad * c0;
+    const size_t base_encode_size = padded_input_elems;
     size_t* encode_output_offset = new size_t[model.num_encoder_layers];
     encode_output_offset[0] = 0;
+    size_t next_encode_offset = base_encode_size;
     for (int i = 0; i< model.num_encoder_layers; i++) {
         for (int j = 0; j < model.encoder_layers[i].num_convs; j++) {
             cx = model.encoder_layers[i].out_channels[j];
@@ -139,14 +143,14 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
         }
 
         if (i < model.num_encoder_layers - 1) {
-            tot_encode_outputs_sz += hx * wx * cx;
-            encode_output_offset[i + 1] = encode_output_offset[i] + hx * wx * cx;
+            size_t layer_output_sz = hx * wx * cx;
+            encode_output_offset[i + 1] = next_encode_offset;
+            next_encode_offset += layer_output_sz;
         }
 
         max_sz = max(max_sz, hx * wx * cx);
     }
-
-    int skip_idx = 3;
+    int skip_idx = std::max(0, static_cast<int>(model.num_encoder_layers) - 3);
     for (int i = 0; i< model.num_decoder_layers; i++) {
         if (skip_idx >= 0) {
             size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0];
@@ -164,7 +168,8 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
         }
         max_sz = max(max_sz, hx * wx * cx);
     }
-    
+    size_t tot_encode_outputs_sz = next_encode_offset;
+
     const float normScale = Transfer::compute_norm_scale();
     const float rcpNormScale = Transfer::compute_rcp_norm_scale();
 
@@ -183,24 +188,31 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     CUDA_ERR(cudaGetLastError());
     CUDA_ERR(cudaDeviceSynchronize());
 
-    CUDA_ERR(cudaMemcpy(d_encode_outputs, d_buf1, h0 * w0 * c0 * sizeof(half), cudaMemcpyDeviceToDevice));
+    CUDA_ERR(cudaMemcpy(d_encode_outputs, d_buf1, padded_input_elems * sizeof(half), cudaMemcpyDeviceToDevice));
 
     std::swap(d_buf0, d_buf1);    
     
     for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
         const Layer& layer = model.encoder_layers[layer_idx];
-        half* d_encode_output = layer_idx == model.num_encoder_layers - 1 ? d_buf1 : d_encode_outputs + encode_output_offset[layer_idx + 1];
         apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c, block, grid);
-        apply_post_op(layer.post_op, d_buf0, d_encode_output, h, w, c, block, grid);
+        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c, block, grid);
+
+        if (layer_idx < model.num_encoder_layers - 1) {
+            size_t layer_elements = h * w * c;
+            half* dst = d_encode_outputs + encode_output_offset[layer_idx + 1];
+            CUDA_ERR(cudaMemcpy(dst, d_buf0, layer_elements * sizeof(half), cudaMemcpyDeviceToDevice));
+        }
     }
     
-    skip_idx = 4;
+    skip_idx = std::max(0, static_cast<int>(model.num_encoder_layers) - 3);
     for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
         const Layer& layer = model.decoder_layers[layer_idx];
         
         if (skip_idx >= 0) {
-            const half* d_skip = d_encode_outputs + encode_output_offset[skip_idx];
-            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx - 1].out_channels[0];
+            const half* d_skip = (skip_idx == 0)
+                ? d_encode_outputs
+                : d_encode_outputs + encode_output_offset[skip_idx + 1];
+            size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0];
             
             dim3 concat_block(256);
             dim3 concat_grid((h * w + concat_block.x - 1) / concat_block.x);
