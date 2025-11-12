@@ -62,11 +62,14 @@ __global__ static void cuda_concat_skip(const half* input, size_t c_input,
 
 static void apply_convolutions(const Layer& layer, const UNetModel& model, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t& c, 
                                 const dim3& block, dim3& grid) {
+    const size_t conv_shared_mem = (block.x * block.y * CONV_IM2COL_TILE_K +
+                                    CONV_IM2COL_TILE_K * block.z) * sizeof(half);
+
     for (size_t i = 0; i < layer.num_convs; i++) {
         size_t out_c = layer.out_channels[i];
         
         grid = dim3((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
-        conv_relu_nhwc_oihw_cuda<<<grid, block>>>(
+        conv_relu_nhwc_oihw_cuda<<<grid, block, conv_shared_mem>>>(
             d_input, d_output, h, w, 3, 3, c, out_c,
             model.weights->half_data + layer.weight_idxs[i],
             model.weights->half_data + layer.bias_idxs[i]);

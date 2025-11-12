@@ -2,6 +2,8 @@
 
 #include "cuda_defs.h"
 
+constexpr int CONV_IM2COL_TILE_K = 16;
+
 void conv_relu_nhwc_oihw(const float* input,
                         float* output,
                         size_t in_h,
