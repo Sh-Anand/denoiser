@@ -6,6 +6,24 @@
 #include <cuda_fp16.h>
 #include <cstring>
 
+static dim3 select_conv_block(size_t h, size_t w, size_t out_c) {
+    int block_x = 16;
+    int block_y = 4;
+    int block_z = 4;
+
+    if (out_c >= 128) {
+        block_x = 4;
+        block_y = 4;
+        block_z = 16;
+    } else if (out_c >= 64) {
+        block_x = 8;
+        block_y = 4;
+        block_z = 8;
+    }
+
+    return dim3(block_x, block_y, block_z);
+}
+
 __global__ static void cuda_apply_hdr_transfer_function(const float* input_img, size_t h0, size_t w0, 
                                                          size_t c0, half* output, size_t h_padded, 
                                                          size_t w_padded, float norm_scale) {
@@ -60,33 +78,47 @@ __global__ static void cuda_concat_skip(const half* input, size_t c_input,
     }
 }
 
-static void apply_convolutions(const Layer& layer, const UNetModel& model, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t& c, 
-                                const dim3& block, dim3& grid) {
-    const size_t conv_shared_mem = (block.x * block.y * CONV_IM2COL_TILE_K +
-                                    CONV_IM2COL_TILE_K * block.z) * sizeof(half);
-
+static void apply_convolutions(const Layer& layer,
+                               const UNetModel& model,
+                               half*& d_input,
+                               half*& d_output,
+                               size_t& h,
+                               size_t& w,
+                               size_t& c) {
     for (size_t i = 0; i < layer.num_convs; i++) {
         size_t out_c = layer.out_channels[i];
+        dim3 block = select_conv_block(h, w, out_c);
+        const size_t conv_shared_mem = (block.x * block.y * CONV_IM2COL_TILE_K + CONV_IM2COL_TILE_K * block.z) * sizeof(half);
+        dim3 grid((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
+
+        const half* weights = model.weights->half_data + layer.weight_idxs[i];
+        const half* bias = model.weights->half_data + layer.bias_idxs[i];
         
-        grid = dim3((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
         conv_relu_nhwc_oihw_cuda<<<grid, block, conv_shared_mem>>>(
-            d_input, d_output, h, w, c, out_c,
-            model.weights->half_data + layer.weight_idxs[i],
-            model.weights->half_data + layer.bias_idxs[i]);
+            d_input,
+            d_output,
+            h,
+            w,
+            c,
+            out_c,
+            weights,
+            bias);
         CUDA_ERR(cudaGetLastError());
-        
+
         c = out_c;
         std::swap(d_input, d_output);
     }
 }
 
-static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t c,
-                          const dim3& block, dim3& grid) {
+static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t c) {
+    dim3 block = select_conv_block(h, w, c);
     if (post_op == LayerPostOp::MAX_POOL) {
         size_t out_h = h / 2;
         size_t out_w = w / 2;
         
-        grid = dim3((out_h + block.x - 1) / block.x, (out_w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
+        dim3 grid((out_h + block.x - 1) / block.x,
+                  (out_w + block.y - 1) / block.y,
+                  (c + block.z - 1) / block.z);
         max_pool_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
         
@@ -96,7 +128,9 @@ static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, 
     } else if (post_op == LayerPostOp::NN_UPSAMPLE) {
         size_t out_h = h * 2;
         size_t out_w = w * 2;
-        grid = dim3((out_h + block.x - 1) / block.x, (out_w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
+        dim3 grid((out_h + block.x - 1) / block.x,
+                  (out_w + block.y - 1) / block.y,
+                  (c + block.z - 1) / block.z);
         nn_upsample_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
         
@@ -183,7 +217,7 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     CUDA_ERR(cudaMemcpy(d_buf0, input_img.tensor.data(), h0 * w0 * c0 * sizeof(float), cudaMemcpyHostToDevice));
     
     dim3 block(8, 8, 4);
-    dim3 grid((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (c + block.z - 1) / block.z);
+    dim3 grid((h0 + block.x - 1) / block.x, (w0 + block.y - 1) / block.y, (c0 + block.z - 1) / block.z);
     cuda_apply_hdr_transfer_function<<<grid, block>>>((float *)d_buf0, h0, w0, c0, d_buf1, h, w, normScale);
     CUDA_ERR(cudaGetLastError());
 
@@ -193,8 +227,8 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     
     for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
         const Layer& layer = model.encoder_layers[layer_idx];
-        apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c, block, grid);
-        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c, block, grid);
+        apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c);
+        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c);
 
         if (layer_idx < model.num_encoder_layers - 1) {
             size_t layer_elements = h * w * c;
@@ -223,11 +257,14 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
             skip_idx--;
         }
         
-        apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c, block, grid);
-        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c, block, grid);
+        apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c);
+        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c);
     }
     
-    grid = dim3((h0 + block.x - 1) / block.x, (w0 + block.y - 1) / block.y, (c + block.z - 1) / block.z);
+    block = select_conv_block(h0, w0, c);
+    grid = dim3((h0 + block.x - 1) / block.x,
+                (w0 + block.y - 1) / block.y,
+                (c + block.z - 1) / block.z);
     cuda_apply_inverse_hdr_transfer_function<<<grid, block>>>(d_buf0, h0, w0, c, w, (float *)d_buf1, rcpNormScale);
     CUDA_ERR(cudaGetLastError());
     
