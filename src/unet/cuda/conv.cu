@@ -35,17 +35,16 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     half* tile_a = smem;
     half* tile_b = tile_a + tile_a_elems;
 
-    half acc = valid ? bias[o] : __float2half(0.0f);
+    const half zero = __float2half(0.0f);
+    half acc = valid ? bias[o] : zero;
 
     for (size_t k_base = 0; k_base < total_k; k_base += CONV_IM2COL_TILE_K) {
-        const int k_tile = CONV_IM2COL_TILE_K < total_k - k_base ? CONV_IM2COL_TILE_K : total_k - k_base;
-
         for (int idx = linear_tid; idx < tile_a_elems; idx += block_threads) {
             const int hw_idx = idx / CONV_IM2COL_TILE_K;
             const int k_col = idx % CONV_IM2COL_TILE_K;
             const size_t k_idx = k_base + k_col;
 
-            half val = __float2half(0.0f);
+            half val = zero;
             if (hw_idx < tile_hw && k_idx < total_k) {
                 const int local_x = hw_idx % blockDim.x;
                 const int local_y = hw_idx / blockDim.x;
@@ -76,7 +75,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
             const size_t k_idx = k_base + k_row;
             const int o_out = block_o0 + out_ch;
 
-            half val = __float2half(0.0f);
+            half val = zero;
             if (k_idx < total_k && o_out < out_c) {
                 val = weights[o_out * total_k + k_idx];
             }
@@ -89,7 +88,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         if (valid) {
             const half* a_row = tile_a + local_hw * CONV_IM2COL_TILE_K;
             const half* b_col = tile_b + threadIdx.z * CONV_IM2COL_TILE_K;
-            for (int kk = 0; kk < k_tile; ++kk) {
+            for (int kk = 0; kk < CONV_IM2COL_TILE_K; ++kk) {
                 acc += a_row[kk] * b_col[kk];
             }
         }
@@ -98,9 +97,10 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     }
 
     if (valid) {
-        output[(h * in_w + w) * out_c + o] = fmaxf(acc, __float2half(0.0f));
+        output[(h * in_w + w) * out_c + o] = __hmax(acc, zero);
     }
 }
+
 
 __global__ void max_pool_nhwc_cuda(const half* input,
                                half* output,
