@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "conv.h"
+
 #include <omp.h>
 
 #if defined(__SSE2__) || defined(__AVX2__) || defined(__AVX512F__)
@@ -77,15 +79,15 @@ void conv_relu_nhwc_oihw(const float* input,
                         float* output,
                         size_t H,
                         size_t W,
-                        size_t filter_h,
-                        size_t filter_w,
                         size_t in_c,
                         size_t out_c,
                         const _Float16* weights,
                         const _Float16* bias) {
-    const size_t pad_h = filter_h / 2;
-    const size_t pad_w = filter_w / 2;
-    const size_t filter_area = filter_h * filter_w;
+    constexpr size_t filter_h = 3;
+    constexpr size_t filter_w = 3;
+    constexpr size_t pad_h = 1;
+    constexpr size_t pad_w = 1;
+    constexpr size_t filter_area = filter_h * filter_w;
     const size_t oc = out_c;
     const size_t ic = in_c;
     const size_t packed_size = ic * filter_area * oc;

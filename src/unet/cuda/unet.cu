@@ -70,7 +70,7 @@ static void apply_convolutions(const Layer& layer, const UNetModel& model, half*
         
         grid = dim3((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
         conv_relu_nhwc_oihw_cuda<<<grid, block, conv_shared_mem>>>(
-            d_input, d_output, h, w, 3, 3, c, out_c,
+            d_input, d_output, h, w, c, out_c,
             model.weights->half_data + layer.weight_idxs[i],
             model.weights->half_data + layer.bias_idxs[i]);
         CUDA_ERR(cudaGetLastError());

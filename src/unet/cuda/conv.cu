@@ -6,8 +6,6 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                                          half* output,
                                          size_t in_h,
                                          size_t in_w,
-                                         size_t filter_h,
-                                         size_t filter_w,
                                          size_t in_c,
                                          size_t out_c,
                                          const half* weights,
@@ -18,8 +16,6 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     const int linear_tid = (threadIdx.z * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x;
     const int local_hw = threadIdx.y * blockDim.x + threadIdx.x;
 
-    const int pad_h = filter_h / 2;
-    const int pad_w = filter_w / 2;
     const int block_h0 = blockIdx.x * blockDim.x;
     const int block_w0 = blockIdx.y * blockDim.y;
     const int block_o0 = blockIdx.z * blockDim.z;
@@ -31,8 +27,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                        (w < in_w) &&
                        (o < out_c);
 
-    const size_t kernel_hw = filter_h * filter_w;
-    const size_t total_k = in_c * kernel_hw;
+    const size_t total_k = in_c * 9;
     const int tile_hw = blockDim.x * blockDim.y;
     const int tile_a_elems = tile_hw * CONV_IM2COL_TILE_K;
     const int tile_b_elems = CONV_IM2COL_TILE_K * blockDim.z;
@@ -58,12 +53,12 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                 const int w_out = block_w0 + local_y;
 
                 if (h_out < in_h && w_out < in_w) {
-                    const int ic = k_idx / kernel_hw;
-                    const int fh = (k_idx % kernel_hw) / filter_w;
-                    const int fw = k_idx % filter_w;
+            const int ic = k_idx / 9;
+            const int fh = (k_idx % 9) / 3;
+            const int fw = k_idx % 3;
 
-                    const int ih = h_out + fh - pad_h;
-                    const int iw = w_out + fw - pad_w;
+                    const int ih = h_out + fh - 1;
+                    const int iw = w_out + fw - 1;
                     if (ih >= 0 && ih < in_h &&
                         iw >= 0 && iw < in_w) {
                         const size_t input_idx = (ih * in_w + iw) * in_c + ic;
