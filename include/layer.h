@@ -16,6 +16,10 @@ struct Layer {
     uint32_t *out_channels;
     uint32_t num_convs;
     LayerPostOp post_op;
+
+    #ifdef __CUDACC__
+    std::vector<dim3> block_dims;
+    #endif
 };
 
 #endif // LAYER_H

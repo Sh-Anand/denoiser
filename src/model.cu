@@ -7,6 +7,7 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
     UNetModel model;
     std::vector<std::vector<const TzaTensor*>> layers;
     std::vector<LayerPostOp> post_ops;
+    std::vector<std::vector<dim3>> block_dims;
     int decoder_layer_offset = 0;
     if (model_name == "rt_hdr") {
         layers = {
@@ -35,6 +36,20 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
             LayerPostOp::NN_UPSAMPLE,
             LayerPostOp::NONE,
             LayerPostOp::NONE
+        };
+
+        block_dims = {
+            {dim3(2, 8, 16)},
+            {dim3(4, 4, 16)},
+            {dim3(2, 8, 16)},
+            {dim3(8, 2, 16)},
+            {dim3(8, 2, 16)},
+            {dim3(4, 4, 16), dim3(4, 4, 16)},
+            {dim3(2, 8, 16), dim3(8, 2, 16)},
+            {dim3(4, 4, 16), dim3(2, 8, 16)},
+            {dim3(4, 4, 16), dim3(4, 4, 16)},
+            {dim3(2, 8, 16), dim3(4, 4, 16)},
+            {dim3(4, 16, 4)}
         };
 
         decoder_layer_offset = 6;
@@ -103,6 +118,13 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
                 model.decoder_layers[decoder_layer_idx].out_channels[j] = layers[i][weight_idx]->dims[0];
             else
                 model.encoder_layers[i].out_channels[j] = layers[i][weight_idx]->dims[0];
+
+            if (cuda) {
+                if (decoder_layer_idx >= 0)
+                    model.decoder_layers[decoder_layer_idx].block_dims.push_back(block_dims[i][j]);
+                else
+                    model.encoder_layers[i].block_dims.push_back(block_dims[i][j]);
+            }
         }
     }
     return model;

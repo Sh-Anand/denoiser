@@ -6,24 +6,6 @@
 #include <cuda_fp16.h>
 #include <cstring>
 
-static dim3 select_conv_block(size_t h, size_t w, size_t out_c) {
-    int block_x = 16;
-    int block_y = 4;
-    int block_z = 4;
-
-    if (out_c >= 128) {
-        block_x = 4;
-        block_y = 4;
-        block_z = 16;
-    } else if (out_c >= 64) {
-        block_x = 8;
-        block_y = 4;
-        block_z = 8;
-    }
-
-    return dim3(block_x, block_y, block_z);
-}
-
 __global__ static void cuda_apply_hdr_transfer_function(const float* input_img, size_t h0, size_t w0, 
                                                          size_t c0, half* output, size_t h_padded, 
                                                          size_t w_padded, float norm_scale) {
@@ -87,7 +69,7 @@ static void apply_convolutions(const Layer& layer,
                                size_t& c) {
     for (size_t i = 0; i < layer.num_convs; i++) {
         size_t out_c = layer.out_channels[i];
-        dim3 block = select_conv_block(h, w, out_c);
+        dim3 block = layer.block_dims[i];
         const size_t conv_shared_mem = (block.x * block.y * CONV_IM2COL_TILE_K + CONV_IM2COL_TILE_K * block.z) * sizeof(half);
         dim3 grid((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
 
@@ -110,9 +92,9 @@ static void apply_convolutions(const Layer& layer,
     }
 }
 
-static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t c) {
-    dim3 block = select_conv_block(h, w, c);
-    if (post_op == LayerPostOp::MAX_POOL) {
+static void apply_post_op(const Layer& layer, half*& d_input, half*& d_output, size_t& h, size_t& w, size_t c) {
+    dim3 block = layer.block_dims[0];
+    if (layer.post_op == LayerPostOp::MAX_POOL) {
         size_t out_h = h / 2;
         size_t out_w = w / 2;
         
@@ -125,7 +107,7 @@ static void apply_post_op(LayerPostOp post_op, half*& d_input, half*& d_output, 
         std::swap(d_input, d_output);
         h = out_h;
         w = out_w;
-    } else if (post_op == LayerPostOp::NN_UPSAMPLE) {
+    } else if (layer.post_op == LayerPostOp::NN_UPSAMPLE) {
         size_t out_h = h * 2;
         size_t out_w = w * 2;
         dim3 grid((out_h + block.x - 1) / block.x,
@@ -228,7 +210,7 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     for (size_t layer_idx = 0; layer_idx < model.encoder_layers.size(); layer_idx++) {
         const Layer& layer = model.encoder_layers[layer_idx];
         apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c);
-        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c);
+        apply_post_op(layer, d_buf0, d_buf1, h, w, c);
 
         if (layer_idx < model.encoder_layers.size() - 1) {
             size_t layer_elements = h * w * c;
@@ -258,10 +240,10 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
         }
         
         apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c);
-        apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c);
+        apply_post_op(layer, d_buf0, d_buf1, h, w, c);
     }
     
-    block = select_conv_block(h0, w0, c);
+    block = model.decoder_layers[0].block_dims[0];
     grid = dim3((h0 + block.x - 1) / block.x,
                 (w0 + block.y - 1) / block.y,
                 (c + block.z - 1) / block.z);
