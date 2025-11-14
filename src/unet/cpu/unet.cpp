@@ -70,7 +70,7 @@ void oidn_unet(EXR::Image& input_img,
     for (size_t y = 0; y < h0; y++) {
         for (size_t x = 0; x < w0; x++) {
             for (size_t ch = 0; ch < c; ch++) {
-                size_t src_idx = (y * w0 + x) * c + ch;
+                size_t src_idx = (ch * h0 + y) * w0 + x;
                 size_t dst_idx = (y * w + x) * c + ch;
                 float val = input_img.tensor[src_idx];
                 input[dst_idx] = Transfer::PU::forward(val) * normScale;
