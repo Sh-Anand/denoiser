@@ -28,8 +28,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                        (o < out_c);
 
     const size_t total_k = in_c * 9;
-    const int tile_hw = blockDim.x * blockDim.y;
-    const int tile_a_elems = tile_hw * CONV_IM2COL_TILE_K;
+    const int tile_a_elems = blockDim.x * blockDim.y * CONV_IM2COL_TILE_K;
     const int tile_b_elems = CONV_IM2COL_TILE_K * blockDim.z;
 
     half* tile_a = smem;
@@ -44,25 +43,25 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
             const int k_col = idx % CONV_IM2COL_TILE_K;
             const size_t k_idx = k_base + k_col;
 
+
+            // guarantee required that TILE_K is divisible by block.Z
             half val = zero;
-            if (hw_idx < tile_hw && k_idx < total_k) {
-                const int local_x = hw_idx % blockDim.x;
-                const int local_y = hw_idx / blockDim.x;
-                const int h_out = block_h0 + local_x;
-                const int w_out = block_w0 + local_y;
+            const int local_x = hw_idx % blockDim.x;
+            const int local_y = hw_idx / blockDim.x;
+            const int h_out = block_h0 + local_x;
+            const int w_out = block_w0 + local_y;
 
-                if (h_out < in_h && w_out < in_w) {
-            const int ic = k_idx / 9;
-            const int fh = (k_idx % 9) / 3;
-            const int fw = k_idx % 3;
+            if (h_out < in_h && w_out < in_w) {
+                const int ic = k_idx / 9;
+                const int fh = (k_idx % 9) / 3;
+                const int fw = k_idx % 3;
 
-                    const int ih = h_out + fh - 1;
-                    const int iw = w_out + fw - 1;
-                    if (ih >= 0 && ih < in_h &&
-                        iw >= 0 && iw < in_w) {
-                        const size_t input_idx = (ih * in_w + iw) * in_c + ic;
-                        val = input[input_idx];
-                    }
+                const int ih = h_out + fh - 1;
+                const int iw = w_out + fw - 1;
+                if (ih >= 0 && ih < in_h &&
+                    iw >= 0 && iw < in_w) {
+                    const size_t input_idx = (ih * in_w + iw) * in_c + ic;
+                    val = input[input_idx];
                 }
             }
 
