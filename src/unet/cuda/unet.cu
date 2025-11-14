@@ -160,10 +160,10 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     size_t max_sz = hx * wx * cx * 2;
     const size_t padded_input_elems = h_pad * w_pad * c0;
     const size_t base_encode_size = padded_input_elems;
-    size_t* encode_output_offset = new size_t[model.num_encoder_layers];
+    std::vector<size_t> encode_output_offset(model.encoder_layers.size());
     encode_output_offset[0] = 0;
     size_t next_encode_offset = base_encode_size;
-    for (int i = 0; i< model.num_encoder_layers; i++) {
+    for (size_t i = 0; i< model.encoder_layers.size(); i++) {
         for (int j = 0; j < model.encoder_layers[i].num_convs; j++) {
             cx = model.encoder_layers[i].out_channels[j];
             max_sz = max(max_sz, hx * wx * cx);
@@ -176,7 +176,7 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
             wx *= 2;
         }
 
-        if (i < model.num_encoder_layers - 1) {
+        if (i < model.encoder_layers.size() - 1) {
             size_t layer_output_sz = hx * wx * cx;
             encode_output_offset[i + 1] = next_encode_offset;
             next_encode_offset += layer_output_sz;
@@ -184,15 +184,15 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
 
         max_sz = max(max_sz, hx * wx * cx);
     }
-    int skip_idx = std::max(0, static_cast<int>(model.num_encoder_layers) - 3);
-    for (int i = 0; i< model.num_decoder_layers; i++) {
+    int skip_idx = std::max(0, static_cast<int>(model.encoder_layers.size()) - 3);
+    for (size_t i = 0; i< model.decoder_layers.size(); i++) {
         if (skip_idx >= 0) {
             size_t skip_c = (skip_idx == 0) ? c0 : model.encoder_layers[skip_idx].out_channels[0];
             cx += skip_c;
             max_sz = max(max_sz, hx * wx * cx);
             skip_idx--;
         }
-        for (int j = 0; j < model.decoder_layers[i].num_convs; j++) {
+        for (size_t j = 0; j < model.decoder_layers[i].num_convs; j++) {
             cx = model.decoder_layers[i].out_channels[j];
             max_sz = max(max_sz, hx * wx * cx);
         }
@@ -225,20 +225,20 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
 
     std::swap(d_buf0, d_buf1);    
     
-    for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
+    for (size_t layer_idx = 0; layer_idx < model.encoder_layers.size(); layer_idx++) {
         const Layer& layer = model.encoder_layers[layer_idx];
         apply_convolutions(layer, model, d_buf0, d_buf1, h, w, c);
         apply_post_op(layer.post_op, d_buf0, d_buf1, h, w, c);
 
-        if (layer_idx < model.num_encoder_layers - 1) {
+        if (layer_idx < model.encoder_layers.size() - 1) {
             size_t layer_elements = h * w * c;
             half* dst = d_encode_outputs + encode_output_offset[layer_idx + 1];
             CUDA_ERR(cudaMemcpy(dst, d_buf0, layer_elements * sizeof(half), cudaMemcpyDeviceToDevice));
         }
     }
     
-    skip_idx = std::max(0, static_cast<int>(model.num_encoder_layers) - 3);
-    for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
+    skip_idx = std::max(0, static_cast<int>(model.encoder_layers.size()) - 3);
+    for (size_t layer_idx = 0; layer_idx < model.decoder_layers.size(); layer_idx++) {
         const Layer& layer = model.decoder_layers[layer_idx];
         
         if (skip_idx >= 0) {
@@ -274,6 +274,5 @@ void oidn_unet_cuda(EXR::Image& input_img, UNetModel& model, float*& output_img)
     CUDA_ERR(cudaFree(d_buf0));
     CUDA_ERR(cudaFree(d_buf1));
     CUDA_ERR(cudaFree(d_encode_outputs));
-    delete[] encode_output_offset;
     freeUNetModel(model, true);
 }
