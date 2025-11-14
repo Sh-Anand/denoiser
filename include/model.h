@@ -2,13 +2,12 @@
 #define MODEL_H
 
 #include "layer.h"
+#include <vector>
 
 struct UNetModel {
     // if cuda, all pointers in CUDA mem
-    Layer* encoder_layers;
-    Layer* decoder_layers;
-    size_t num_encoder_layers;
-    size_t num_decoder_layers;
+    std::vector<Layer> encoder_layers;
+    std::vector<Layer> decoder_layers;
 
     TensorData* weights;
 };

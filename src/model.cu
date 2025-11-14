@@ -57,10 +57,8 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
     }
 
     size_t offset = 0;
-    model.num_encoder_layers = decoder_layer_offset;
-    model.num_decoder_layers = layers.size() - decoder_layer_offset;
-    model.encoder_layers = new Layer[model.num_encoder_layers];
-    model.decoder_layers = new Layer[model.num_decoder_layers];
+    model.encoder_layers.resize(decoder_layer_offset);
+    model.decoder_layers.resize(layers.size() - decoder_layer_offset);
 
     for (int i = 0; i < layers.size(); i++) {
         int decoder_layer_idx = i - decoder_layer_offset;
@@ -112,20 +110,16 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
 
 void freeUNetModel(UNetModel& model, bool cuda) {
     // Free layer-specific arrays
-    for (size_t i = 0; i < model.num_encoder_layers; i++) {
+    for (size_t i = 0; i < model.encoder_layers.size(); i++) {
         delete[] model.encoder_layers[i].weight_idxs;
         delete[] model.encoder_layers[i].bias_idxs;
         delete[] model.encoder_layers[i].out_channels;
     }
-    for (size_t i = 0; i < model.num_decoder_layers; i++) {
+    for (size_t i = 0; i < model.decoder_layers.size(); i++) {
         delete[] model.decoder_layers[i].weight_idxs;
         delete[] model.decoder_layers[i].bias_idxs;
         delete[] model.decoder_layers[i].out_channels;
     }
-    
-    // Free layer arrays
-    delete[] model.encoder_layers;
-    delete[] model.decoder_layers;
     
     // Free weight buffer
     if (cuda) {

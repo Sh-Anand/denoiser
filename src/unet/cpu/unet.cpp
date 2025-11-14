@@ -81,7 +81,7 @@ void oidn_unet(EXR::Image& input_img,
     auto original_input = std::make_unique<float[]>(h * w * c);
     std::copy(input.get(), input.get() + h * w * c, original_input.get());
     
-    for (size_t layer_idx = 0; layer_idx < model.num_encoder_layers; layer_idx++) {
+    for (size_t layer_idx = 0; layer_idx < model.encoder_layers.size(); layer_idx++) {
         const auto& layer = model.encoder_layers[layer_idx];
         
         apply_convolutions(layer, model, input, h, w, c);
@@ -93,7 +93,7 @@ void oidn_unet(EXR::Image& input_img,
     }
     
     int skip_idx = 3;
-    for (size_t layer_idx = 0; layer_idx < model.num_decoder_layers; layer_idx++) {
+    for (size_t layer_idx = 0; layer_idx < model.decoder_layers.size(); layer_idx++) {
         const auto& layer = model.decoder_layers[layer_idx];
         
         if (skip_idx >= 0) {
