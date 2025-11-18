@@ -40,7 +40,22 @@ target_link_libraries(denoiser
     OpenEXR::OpenEXR
     OpenMP::OpenMP_CXX)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3 -lineinfo")
+
+set(AUTOTUNE_SOURCE
+    src/autotune.cu
+    src/unet/cuda/conv.cu
+    src/exr.cpp
+    src/model.cu
+    src/tza.cpp
+)
+
+add_executable(conv_autotune ${AUTOTUNE_SOURCE})
+target_include_directories(conv_autotune PUBLIC include)
+target_link_libraries(conv_autotune
+    OpenEXR::OpenEXR
+    OpenMP::OpenMP_CXX)
 
 add_custom_command(TARGET denoiser POST_BUILD
   BYPRODUCTS
