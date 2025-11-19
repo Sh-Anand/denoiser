@@ -3,6 +3,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
+// NOTE: REQUIRED THAT BLOCK.DIM.Z = BLOCK.DIM.X * BLOCK.DIM.Y
 __global__ void conv_relu_nchw_oihw_cuda(const half* input,
                                          half* output,
                                          size_t in_h,
@@ -24,28 +25,21 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
     const uint32_t h = block_h0 + threadIdx.x;
     const uint32_t w = block_w0 + threadIdx.y;
     const uint32_t o = block_o0 + threadIdx.z;
-    const bool valid = (h < in_h) &&
-                       (w < in_w) &&
-                       (o < out_c);
 
     const uint32_t total_k = in_c * 9;
     const uint32_t tile_a_elems = blockDim.x * blockDim.y * CONV_IM2COL_TILE_K;
-    const uint32_t tile_b_elems = CONV_IM2COL_TILE_K * blockDim.z;
-    const uint32_t max_tile = max(tile_b_elems, tile_a_elems);
 
-    half* tile_a = smem;
-    half* tile_b = tile_a + tile_a_elems;
+    half* tile_b = smem + tile_a_elems;
 
-    const half zero = __float2half(0.0f);
-    half acc = valid ? bias[o] : zero;
-
+    half acc = bias[o];
+    
     for (uint32_t k_base = 0; k_base < total_k; k_base += CONV_IM2COL_TILE_K) {
-        for (uint32_t idx = linear_tid; idx < max_tile; idx += block_threads) {
+        for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) {
             const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);
             const uint32_t k_idx = k_base + k_col;
 
-            half val_a = zero;
-            half val_b = zero;
+            half val_a = 0;
+            half val_b = 0;
             if (k_idx < total_k) {
                 const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;
                 const uint32_t o_out = block_o0 + hw_idx;
@@ -73,27 +67,22 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
                 }
             }
 
-            tile_a[idx] = val_a;
+            smem[idx] = val_a;
             tile_b[idx] = val_b;
         }
 
         __syncthreads();
 
-        if (valid) {
-            const half* a_row = tile_a + local_hw * CONV_IM2COL_TILE_K;
-            const half* b_col = tile_b + threadIdx.z * CONV_IM2COL_TILE_K;
-            for (uint32_t kk = 0; kk < CONV_IM2COL_TILE_K; ++kk) {
-                acc += a_row[kk] * b_col[kk];
-            }
-        }
+        const half* a_row = smem + local_hw * CONV_IM2COL_TILE_K;
+        const half* b_col = tile_b + threadIdx.z * CONV_IM2COL_TILE_K;
+        for (uint32_t kk = 0; kk < CONV_IM2COL_TILE_K; ++kk)
+            acc += a_row[kk] * b_col[kk];
 
         __syncthreads();
     }
 
-    if (valid) {
-        const uint32_t out_idx = (o * in_h + h) * in_w + w;
-        output[out_idx] = __hmax(acc, zero);
-    }
+    const uint32_t out_idx = (o * in_h + h) * in_w + w;
+    output[out_idx] = __hmax(acc, 0);
 }
 
 
