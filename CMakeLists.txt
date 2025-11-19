@@ -56,6 +56,8 @@ target_include_directories(conv_autotune PUBLIC include)
 target_link_libraries(conv_autotune
     OpenEXR::OpenEXR
     OpenMP::OpenMP_CXX)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+target_compile_options(denoiser PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
 
 add_custom_command(TARGET denoiser POST_BUILD
   BYPRODUCTS
