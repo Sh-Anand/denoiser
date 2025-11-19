@@ -44,6 +44,7 @@
         dst_b[idx] = val_b;                                                                \
     }
     
+template <int CONV_IM2COL_TILE_K, int LOG_CONV_IM2COL_TILE_K>
 __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                                          half* output,
                                          size_t in_h,
@@ -133,6 +134,39 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         output[out_idx] = __hmax(acc, 0);
     }
 }
+
+template __global__ void conv_relu_nhwc_oihw_cuda<4, 2>(const half*,
+                                                        half*,
+                                                        size_t,
+                                                        size_t,
+                                                        size_t,
+                                                        size_t,
+                                                        const half*,
+                                                        const half*);
+template __global__ void conv_relu_nhwc_oihw_cuda<8, 3>(const half*,
+                                                        half*,
+                                                        size_t,
+                                                        size_t,
+                                                        size_t,
+                                                        size_t,
+                                                        const half*,
+                                                        const half*);
+template __global__ void conv_relu_nhwc_oihw_cuda<16, 4>(const half*,
+                                                         half*,
+                                                         size_t,
+                                                         size_t,
+                                                         size_t,
+                                                         size_t,
+                                                         const half*,
+                                                         const half*);
+template __global__ void conv_relu_nhwc_oihw_cuda<32, 5>(const half*,
+                                                         half*,
+                                                         size_t,
+                                                         size_t,
+                                                         size_t,
+                                                         size_t,
+                                                         const half*,
+                                                         const half*);
 
 
 __global__ void max_pool_nhwc_cuda(const half* input,

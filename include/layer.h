@@ -19,6 +19,7 @@ struct Layer {
 
     #ifdef __CUDACC__
     std::vector<dim3> block_dims;
+    std::vector<int> conv_im2col_tile_ks;
     #endif
 };
 

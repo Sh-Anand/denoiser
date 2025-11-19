@@ -2,9 +2,6 @@
 
 #include "cuda_defs.h"
 
-constexpr int CONV_IM2COL_TILE_K = 8;
-constexpr int LOG_CONV_IM2COL_TILE_K = 3;
-
 void conv_relu_nhwc_oihw(const float* input,
                         float* output,
                         size_t in_h,
@@ -36,6 +33,7 @@ void nn_upsample_nhwc(const float* input,
 #ifdef __CUDACC__
 #include <cuda_fp16.h>
 
+template <int CONV_IM2COL_TILE_K, int LOG_CONV_IM2COL_TILE_K>
 __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                         half* output,
                         size_t in_h,
