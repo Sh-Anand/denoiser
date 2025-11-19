@@ -49,7 +49,7 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
             {dim3(4, 4, 16), dim3(2, 8, 16)},
             {dim3(4, 4, 16), dim3(4, 4, 16)},
             {dim3(2, 8, 16), dim3(4, 4, 16)},
-            {dim3(4, 16, 4)}
+            {dim3(4, 4, 16)}
         };
 
         decoder_layer_offset = 6;
