@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <cstdint>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
@@ -117,8 +118,8 @@ static void collect_decoder_specs(const UNetModel& model,
 }
 
 static std::vector<dim3> build_candidate_blocks() {
-    const unsigned int xy_vals[] = {2, 4, 8, 16, 32};
-    const unsigned int z_vals[] = {4, 8, 16, 32};
+    const unsigned int xy_vals[] = {2, 4, 8, 12, 16, 32, 64};
+    const unsigned int z_vals[] = {2, 4, 8, 16, 32, 64};
     std::vector<dim3> candidates;
     for (unsigned int x : xy_vals) {
         for (unsigned int y : xy_vals) {
@@ -187,7 +188,7 @@ static float launch_and_time_conv(const ConvSpec& spec,
 
     CUDA_ERR(cudaEventRecord(start));
     for (int i = 0; i < repeats; ++i) {
-        conv_relu_nchw_oihw_cuda<<<grid, block, shared_mem>>>(
+        conv_relu_nhwc_oihw_cuda<<<grid, block, shared_mem>>>(
             input,
             output,
             spec.in_h,

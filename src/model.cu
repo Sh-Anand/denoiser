@@ -39,17 +39,17 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
         };
 
         block_dims = {
-            {dim3(2, 8, 16)},
+            {dim3(4, 4, 32)},
+            {dim3(4, 4, 32)},
             {dim3(4, 4, 16)},
-            {dim3(2, 8, 16)},
-            {dim3(8, 2, 16)},
-            {dim3(8, 2, 16)},
-            {dim3(4, 4, 16), dim3(4, 4, 16)},
-            {dim3(2, 8, 16), dim3(8, 2, 16)},
-            {dim3(4, 4, 16), dim3(2, 8, 16)},
-            {dim3(4, 4, 16), dim3(4, 4, 16)},
-            {dim3(2, 8, 16), dim3(4, 4, 16)},
-            {dim3(4, 4, 16)}
+            {dim3(4, 4, 32)},
+            {dim3(8, 4, 16)},
+            {dim3(4, 4, 32), dim3(4, 4, 32)},
+            {dim3(4, 8, 16), dim3(4, 4, 32)},
+            {dim3(4, 4, 32), dim3(4, 4, 32)},
+            {dim3(4, 4, 32), dim3(4, 4, 32)},
+            {dim3(4, 4, 32), dim3(4, 4, 32)},
+            {dim3(4, 12, 4)}
         };
 
         decoder_layer_offset = 6;
