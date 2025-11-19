@@ -85,16 +85,17 @@ void Image::load(const std::string& filename, const std::vector<std::string>& re
     file.setFrameBuffer(frame_buffer);
     file.readPixels(dw.min.y, dw.max.y);
 
-    // Pack the requested channels into an NCHW tensor (channel-major planes).
+    // Pack the requested channels into an NHWC tensor (pixel-major, channel-interleaved).
     const std::size_t channel_count = loaded_channels.size();
     tensor.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * channel_count, 0.f);
-    for (std::size_t c = 0; c < channel_count; ++c) {
-        Imf::Array2D<float>& plane = *channel_planes[c];
-        float* dst_plane = tensor.data() + c * static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                const std::size_t pixel_index = static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x);
-                dst_plane[pixel_index] = plane[y][x];
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const std::size_t base_idx =
+                (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) *
+                channel_count;
+            for (std::size_t c = 0; c < channel_count; ++c) {
+                Imf::Array2D<float>& plane = *channel_planes[c];
+                tensor[base_idx + c] = plane[y][x];
             }
         }
     }

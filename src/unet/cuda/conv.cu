@@ -3,8 +3,48 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
-// NOTE: REQUIRED THAT BLOCK.DIM.Z = BLOCK.DIM.X * BLOCK.DIM.Y
-__global__ void conv_relu_nchw_oihw_cuda(const half* input,
+#define LOAD_TILE_A(dst_a, k_base_val)                                                     \
+    for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) {            \
+        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);                             \
+        const uint32_t k_idx = k_base_val + k_col;                                         \
+        half val_a = 0;                                                                    \
+        if (k_idx < total_k) {                                                             \
+            const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;                         \
+            const uint32_t local_x = hw_idx % blockDim.x;                                  \
+            const uint32_t local_y = hw_idx / blockDim.x;                                  \
+            const uint32_t h_out = block_h0 + local_x;                                     \
+            const uint32_t w_out = block_w0 + local_y;                                     \
+            if (h_out < in_h && w_out < in_w) {                                            \
+                const uint32_t ic = k_idx / 9;                                             \
+                const uint32_t fh = (k_idx % 9) / 3;                                       \
+                const uint32_t fw = k_idx % 3;                                             \
+                const uint32_t ih = h_out + fh - 1;                                        \
+                const uint32_t iw = w_out + fw - 1;                                        \
+                if (ih < in_h && iw < in_w) {                                              \
+                    const uint32_t input_idx = ((ih * in_w + iw) * in_c) + ic;             \
+                    val_a = input[input_idx];                                              \
+                }                                                                          \
+            }                                                                              \
+        }                                                                                  \
+        dst_a[idx] = val_a;                                                                \
+    }
+
+#define LOAD_TILE_B(dst_b, k_base_val)                                                     \
+    for (uint32_t idx = linear_tid; idx < tile_b_elems; idx += block_threads) {            \
+        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);                             \
+        const uint32_t k_idx = k_base_val + k_col;                                         \
+        half val_b = 0;                                                                    \
+        if (k_idx < total_k) {                                                             \
+            const uint32_t o_out_local = idx >> LOG_CONV_IM2COL_TILE_K;                    \
+            const uint32_t o_out = block_o0 + o_out_local;                                 \
+            if (o_out < out_c) {                                                           \
+                val_b = weights[o_out * total_k + k_idx];                                  \
+            }                                                                              \
+        }                                                                                  \
+        dst_b[idx] = val_b;                                                                \
+    }
+    
+__global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                                          half* output,
                                          size_t in_h,
                                          size_t in_w,
@@ -35,45 +75,7 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
     half* tile_a_next = tile_b_curr + tile_b_elems;
     half* tile_b_next = tile_a_next + tile_a_elems;
 
-    half acc = bias[o];
-
-#define LOAD_TILE(dst_a, dst_b, k_base_val)                                \
-        for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) { \
-            const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);          \
-            const uint32_t k_idx = (k_base_val) + k_col;                    \
-                                                                            \
-            half val_a = 0;                                                 \
-            half val_b = 0;                                                 \
-            if (k_idx < total_k) {                                          \
-                const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;      \
-                const uint32_t o_out = block_o0 + hw_idx;                  \
-                                                                            \
-                const uint32_t local_x = hw_idx % blockDim.x;               \
-                const uint32_t local_y = hw_idx / blockDim.x;               \
-                const uint32_t h_out = block_h0 + local_x;                 \
-                const uint32_t w_out = block_w0 + local_y;                 \
-                                                                            \
-                if (h_out < in_h && w_out < in_w) {                         \
-                    const uint32_t ic = k_idx / 9;                          \
-                    const uint32_t fh = (k_idx % 9) / 3;                     \
-                    const uint32_t fw = k_idx % 3;                          \
-                                                                            \
-                    const uint32_t ih = h_out + fh - 1;                     \
-                    const uint32_t iw = w_out + fw - 1;                     \
-                    if (ih < in_h && iw < in_w) {                           \
-                        const uint32_t input_idx = (ic * in_h + ih) * in_w + iw; \
-                        val_a = input[input_idx];                           \
-                    }                                                       \
-                }                                                           \
-                                                                            \
-                if (o_out < out_c) {                                        \
-                    val_b = weights[o_out * total_k + k_idx];               \
-                }                                                           \
-            }                                                               \
-                                                                            \
-            (dst_a)[idx] = val_a;                                           \
-            (dst_b)[idx] = val_b;                                           \
-        }
+    half acc = (o < out_c) ? bias[o] : __float2half(0.0f);
 
     half* curr_a = tile_a_curr;
     half* curr_b = tile_b_curr;
@@ -83,9 +85,11 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
     uint32_t next_k_base = CONV_IM2COL_TILE_K;
     bool has_next = next_k_base < total_k;
 
-    LOAD_TILE(curr_a, curr_b, 0);
+    LOAD_TILE_A(curr_a, 0);
+    LOAD_TILE_B(curr_b, 0);
     if (has_next) {
-        LOAD_TILE(next_a, next_b, next_k_base);
+        LOAD_TILE_A(next_a, next_k_base);
+        LOAD_TILE_B(next_b, next_k_base);
     }
     __syncthreads();
 
@@ -111,7 +115,8 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
         next_b = temp_b;
 
         if (next_k_base < total_k) {
-            LOAD_TILE(next_a, next_b, next_k_base);
+            LOAD_TILE_A(next_a, next_k_base);
+            LOAD_TILE_B(next_b, next_k_base);
             has_next = true;
         } else {
             has_next = false;
@@ -120,14 +125,17 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
         __syncthreads();
     }
 
-#undef LOAD_TILE
+#undef LOAD_TILE_A
+#undef LOAD_TILE_B
 
-    const uint32_t out_idx = (o * in_h + h) * in_w + w;
-    output[out_idx] = __hmax(acc, 0);
+    if (h < in_h && w < in_w && o < out_c) {
+        const uint32_t out_idx = ((h * in_w + w) * out_c) + o;
+        output[out_idx] = __hmax(acc, 0);
+    }
 }
 
 
-__global__ void max_pool_nchw_cuda(const half* input,
+__global__ void max_pool_nhwc_cuda(const half* input,
                                half* output,
                                size_t in_h,
                                size_t in_w,
@@ -145,18 +153,20 @@ __global__ void max_pool_nchw_cuda(const half* input,
     const int ih = h * 2;
     const int iw = w * 2;
 
-    const size_t plane_size = in_h * in_w;
-    const half* channel_in = input + c * plane_size;
-    half* channel_out = output + c * out_h * out_w;
+    const half* base_in = input + (static_cast<size_t>(ih) * in_w + iw) * in_c + c;
+    const size_t row_stride = static_cast<size_t>(in_w) * in_c;
+    const size_t col_stride = in_c;
 
-    half max_val = channel_in[ih * in_w + iw];
-    max_val = __hmax(max_val, channel_in[ih * in_w + (iw + 1)]);
-    max_val = __hmax(max_val, channel_in[(ih + 1) * in_w + iw]);
-    max_val = __hmax(max_val, channel_in[(ih + 1) * in_w + (iw + 1)]);
-    channel_out[h * out_w + w] = max_val;
+    half max_val = base_in[0];
+    max_val = __hmax(max_val, base_in[col_stride]);
+    max_val = __hmax(max_val, base_in[row_stride]);
+    max_val = __hmax(max_val, base_in[row_stride + col_stride]);
+
+    const size_t out_idx = (static_cast<size_t>(h) * out_w + w) * in_c + c;
+    output[out_idx] = max_val;
 }
 
-__global__ void avg_pool_nchw_cuda(const half* input,
+__global__ void avg_pool_nhwc_cuda(const half* input,
                                half* output,
                                size_t in_h,
                                size_t in_w,
@@ -175,18 +185,20 @@ __global__ void avg_pool_nchw_cuda(const half* input,
     const int ih = h * 2;
     const int iw = w * 2;
 
-    const size_t plane_size = in_h * in_w;
-    const half* channel_in = input + c * plane_size;
-    half* channel_out = output + c * out_h * out_w;
+    const half* base_in = input + (static_cast<size_t>(ih) * in_w + iw) * in_c + c;
+    const size_t row_stride = static_cast<size_t>(in_w) * in_c;
+    const size_t col_stride = in_c;
 
-    half avg_val = channel_in[ih * in_w + iw];
-    avg_val = __hadd(avg_val, channel_in[ih * in_w + (iw + 1)]);
-    avg_val = __hadd(avg_val, channel_in[(ih + 1) * in_w + iw]);
-    avg_val = __hadd(avg_val, channel_in[(ih + 1) * in_w + (iw + 1)]);
-    channel_out[h * out_w + w] = __hdiv(avg_val, __float2half(4.0f));
+    half avg_val = base_in[0];
+    avg_val = __hadd(avg_val, base_in[col_stride]);
+    avg_val = __hadd(avg_val, base_in[row_stride]);
+    avg_val = __hadd(avg_val, base_in[row_stride + col_stride]);
+
+    const size_t out_idx = (static_cast<size_t>(h) * out_w + w) * in_c + c;
+    output[out_idx] = __hdiv(avg_val, __float2half(4.0f));
 }
 
-__global__ void nn_upsample_nchw_cuda(const half* input,
+__global__ void nn_upsample_nhwc_cuda(const half* input,
                                   half* output,
                                   size_t in_h,
                                   size_t in_w,
@@ -201,9 +213,7 @@ __global__ void nn_upsample_nchw_cuda(const half* input,
     if (h >= out_h || w >= out_w || c >= in_c)
         return;
 
-    const size_t in_plane = in_h * in_w;
-    const size_t out_plane = out_h * out_w;
-    const half* channel_in = input + c * in_plane;
-    half* channel_out = output + c * out_plane;
-    channel_out[h * out_w + w] = channel_in[(h / 2) * in_w + (w / 2)];
+    const size_t in_idx = (static_cast<size_t>(h / 2) * in_w + (w / 2)) * in_c + c;
+    const size_t out_idx = (static_cast<size_t>(h) * out_w + w) * in_c + c;
+    output[out_idx] = input[in_idx];
 }

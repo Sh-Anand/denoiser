@@ -16,10 +16,10 @@ __global__ static void cuda_apply_hdr_transfer_function(const float* input_img, 
     if (y >= h_padded || x >= w_padded || ch >= c0)
         return;
 
-    const size_t dst_idx = ((ch * h_padded + y) * w_padded) + x;
+    const size_t dst_idx = (y * w_padded + x) * c0 + ch;
     half val = __float2half(0.0f);
     if (y < h0 && x < w0) {
-        size_t src_idx = ((ch * h0 + y) * w0) + x;
+        size_t src_idx = (y * w0 + x) * c0 + ch;
         float sample = Transfer::PU::forward(input_img[src_idx]);
         val = __float2half(sample * norm_scale);
     }
@@ -36,7 +36,7 @@ __global__ static void cuda_apply_inverse_hdr_transfer_function(const half* inpu
     if (y >= h0 || x >= w0 || ch >= c)
         return;
 
-    size_t src_idx = ((ch * h_padded + y) * w_padded) + x;
+    size_t src_idx = (static_cast<size_t>(y) * w_padded + x) * c + ch;
     size_t dst_idx = (y * w0 + x) * c + ch;
     float val = Transfer::PU::inverse(__half2float(input[src_idx]) * rcp_norm_scale);
     output[dst_idx] = val;
@@ -51,12 +51,17 @@ __global__ static void cuda_concat_skip(const half* input, size_t c_input,
     if (idx >= plane_size)
         return;
 
+    const size_t out_stride = c_input + c_skip;
+    const half* input_pix = input + idx * c_input;
+    const half* skip_pix = skip + idx * c_skip;
+    half* out_pix = output + idx * out_stride;
+
     for (size_t ch = 0; ch < c_input; ch++) {
-        output[ch * plane_size + idx] = input[ch * plane_size + idx];
+        out_pix[ch] = input_pix[ch];
     }
-    
+
     for (size_t ch = 0; ch < c_skip; ch++) {
-        output[(c_input + ch) * plane_size + idx] = skip[ch * plane_size + idx];
+        out_pix[c_input + ch] = skip_pix[ch];
     }
 }
 
@@ -78,7 +83,7 @@ static void apply_convolutions(const Layer& layer,
         const half* weights = model.weights->half_data + layer.weight_idxs[i];
         const half* bias = model.weights->half_data + layer.bias_idxs[i];
         
-        conv_relu_nchw_oihw_cuda<<<grid, block, conv_shared_mem>>>(
+        conv_relu_nhwc_oihw_cuda<<<grid, block, conv_shared_mem>>>(
             d_input,
             d_output,
             h,
@@ -103,7 +108,7 @@ static void apply_post_op(const Layer& layer, half*& d_input, half*& d_output, s
         dim3 grid((out_h + block.x - 1) / block.x,
                   (out_w + block.y - 1) / block.y,
                   (c + block.z - 1) / block.z);
-        max_pool_nchw_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
+        max_pool_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
         
         std::swap(d_input, d_output);
@@ -115,7 +120,7 @@ static void apply_post_op(const Layer& layer, half*& d_input, half*& d_output, s
         dim3 grid((out_h + block.x - 1) / block.x,
                   (out_w + block.y - 1) / block.y,
                   (c + block.z - 1) / block.z);
-        nn_upsample_nchw_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
+        nn_upsample_nhwc_cuda<<<grid, block>>>(d_input, d_output, h, w, c);
         CUDA_ERR(cudaGetLastError());
         
         std::swap(d_input, d_output);

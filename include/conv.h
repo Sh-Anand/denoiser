@@ -36,7 +36,7 @@ void nn_upsample_nhwc(const float* input,
 #ifdef __CUDACC__
 #include <cuda_fp16.h>
 
-__global__ void conv_relu_nchw_oihw_cuda(const half* input,
+__global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                         half* output,
                         size_t in_h,
                         size_t in_w,
@@ -45,19 +45,19 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
                         const __half* weights,
                         const __half* bias);
 
-__global__ void max_pool_nchw_cuda(const half* input,
+__global__ void max_pool_nhwc_cuda(const half* input,
                    half* output,
                    size_t in_h,
                    size_t in_w,
                    size_t in_c);
 
-__global__ void avg_pool_nchw_cuda(const half* input,
+__global__ void avg_pool_nhwc_cuda(const half* input,
                    half* output,
                    size_t in_h,
                    size_t in_w,
                    size_t in_c);
 
-__global__ void nn_upsample_nchw_cuda(const half* input,
+__global__ void nn_upsample_nhwc_cuda(const half* input,
                       half* output,
                       size_t in_h,
                       size_t in_w,
