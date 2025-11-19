@@ -39,8 +39,8 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
 
     for (size_t k_base = 0; k_base < total_k; k_base += CONV_IM2COL_TILE_K) {
         for (int idx = linear_tid; idx < tile_a_elems; idx += block_threads) {
-            const int hw_idx = idx / CONV_IM2COL_TILE_K;
-            const int k_col = idx % CONV_IM2COL_TILE_K;
+            const int hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;
+            const int k_col = idx & (CONV_IM2COL_TILE_K - 1);
             const size_t k_idx = k_base + k_col;
 
             half val = zero;
@@ -69,8 +69,8 @@ __global__ void conv_relu_nchw_oihw_cuda(const half* input,
         }
 
         for (int idx = linear_tid; idx < tile_b_elems; idx += block_threads) {
-            const int out_ch = idx / CONV_IM2COL_TILE_K;
-            const int k_row = idx % CONV_IM2COL_TILE_K;
+            const int out_ch = idx >> LOG_CONV_IM2COL_TILE_K;
+            const int k_row = idx & (CONV_IM2COL_TILE_K - 1);
             const size_t k_idx = k_base + k_row;
             const int o_out = block_o0 + out_ch;
 

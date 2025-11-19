@@ -3,6 +3,7 @@
 #include "cuda_defs.h"
 
 constexpr int CONV_IM2COL_TILE_K = 16;
+constexpr int LOG_CONV_IM2COL_TILE_K = 4;
 
 void conv_relu_nhwc_oihw(const float* input,
                         float* output,
