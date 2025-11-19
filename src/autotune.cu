@@ -117,8 +117,8 @@ static void collect_decoder_specs(const UNetModel& model,
 }
 
 static std::vector<dim3> build_candidate_blocks() {
-    const unsigned int xy_vals[] = {2, 4, 8, 16};
-    const unsigned int z_vals[] = {4, 8, 16};
+    const unsigned int xy_vals[] = {2, 4, 8, 16, 32};
+    const unsigned int z_vals[] = {4, 8, 16, 32};
     std::vector<dim3> candidates;
     for (unsigned int x : xy_vals) {
         for (unsigned int y : xy_vals) {
