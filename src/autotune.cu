@@ -138,7 +138,7 @@ static size_t shared_mem_for_block(const dim3& block) {
     const size_t block_hw = static_cast<size_t>(block.x) * block.y;
     const size_t tile_a = block_hw * CONV_IM2COL_TILE_K;
     const size_t tile_b = static_cast<size_t>(block.z) * CONV_IM2COL_TILE_K;
-    return (tile_a + tile_b) * sizeof(half);
+    return 2 * (tile_a + tile_b) * sizeof(half);
 }
 
 static bool is_candidate_valid(const dim3& block, size_t max_shared_mem) {

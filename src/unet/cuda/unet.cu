@@ -70,7 +70,9 @@ static void apply_convolutions(const Layer& layer,
     for (size_t i = 0; i < layer.num_convs; i++) {
         size_t out_c = layer.out_channels[i];
         dim3 block = layer.block_dims[i];
-        const size_t conv_shared_mem = (block.x * block.y * CONV_IM2COL_TILE_K + CONV_IM2COL_TILE_K * block.z) * sizeof(half);
+        const size_t tile_a = block.x * block.y * CONV_IM2COL_TILE_K;
+        const size_t tile_b = block.z * CONV_IM2COL_TILE_K;
+        const size_t conv_shared_mem = 2 * (tile_a + tile_b) * sizeof(half);
         dim3 grid((h + block.x - 1) / block.x, (w + block.y - 1) / block.y, (out_c + block.z - 1) / block.z);
 
         const half* weights = model.weights->half_data + layer.weight_idxs[i];
