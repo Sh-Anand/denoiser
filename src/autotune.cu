@@ -31,6 +31,7 @@ struct ConvResult {
     ConvSpec spec;
     dim3 best_block;
     float best_time_ms;
+    int best_tile;
 };
 
 static size_t compute_padded(size_t value, size_t alignment) {
@@ -135,21 +136,21 @@ static std::vector<dim3> build_candidate_blocks() {
     return candidates;
 }
 
-static size_t shared_mem_for_block(const dim3& block) {
+static size_t shared_mem_for_block(const dim3& block, int conv_im2col_tile_ks) {
     const size_t block_hw = static_cast<size_t>(block.x) * block.y;
-    const size_t tile_a = block_hw * CONV_IM2COL_TILE_K;
-    const size_t tile_b = static_cast<size_t>(block.z) * CONV_IM2COL_TILE_K;
+    const size_t tile_a = block_hw * conv_im2col_tile_ks;
+    const size_t tile_b = static_cast<size_t>(block.z) * conv_im2col_tile_ks;
     return 2 * (tile_a + tile_b) * sizeof(half);
 }
 
-static bool is_candidate_valid(const dim3& block, size_t max_shared_mem) {
+static bool is_candidate_valid(const dim3& block, size_t max_shared_mem, int conv_im2col_tile_ks) {
     if (block.x == 0 || block.y == 0 || block.z == 0)
         return false;
     const unsigned long long threads =
         static_cast<unsigned long long>(block.x) * block.y * block.z;
     if (threads == 0 || threads > 1024)
         return false;
-    return shared_mem_for_block(block) <= max_shared_mem;
+    return shared_mem_for_block(block, conv_im2col_tile_ks) <= max_shared_mem;
 }
 
 static dim3 compute_grid(const dim3& block,
@@ -174,13 +175,14 @@ static float launch_and_time_conv(const ConvSpec& spec,
                                   const half* input,
                                   half* output,
                                   size_t max_shared_mem,
+                                  int conv_im2col_tile_ks,
                                   int repeats) {
-    if (!is_candidate_valid(block, max_shared_mem)) {
+    if (!is_candidate_valid(block, max_shared_mem, conv_im2col_tile_ks)) {
         return std::numeric_limits<float>::infinity();
     }
 
     const dim3 grid = compute_grid(block, spec.in_h, spec.in_w, spec.out_c);
-    const size_t shared_mem = shared_mem_for_block(block);
+    const size_t shared_mem = shared_mem_for_block(block, conv_im2col_tile_ks);
 
     cudaEvent_t start, stop;
     CUDA_ERR(cudaEventCreate(&start));
@@ -188,15 +190,22 @@ static float launch_and_time_conv(const ConvSpec& spec,
 
     CUDA_ERR(cudaEventRecord(start));
     for (int i = 0; i < repeats; ++i) {
-        conv_relu_nhwc_oihw_cuda<<<grid, block, shared_mem>>>(
-            input,
-            output,
-            spec.in_h,
-            spec.in_w,
-            spec.in_c,
-            spec.out_c,
-            spec.weights,
-            spec.bias);
+        switch (conv_im2col_tile_ks) {
+            case 4:
+                conv_relu_nhwc_oihw_cuda<4, 2><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
+                break;
+            case 8:
+                conv_relu_nhwc_oihw_cuda<8, 3><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
+                break;
+            case 16:
+                conv_relu_nhwc_oihw_cuda<16, 4><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
+                break;
+            case 32:
+                conv_relu_nhwc_oihw_cuda<32, 5><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
+                break;
+            default:
+                throw std::runtime_error("Invalid conv_im2col_tile_ks");
+        }
     }
     CUDA_ERR(cudaEventRecord(stop));
     CUDA_ERR(cudaEventSynchronize(stop));
@@ -213,6 +222,7 @@ static float launch_and_time_conv(const ConvSpec& spec,
 
 static ConvResult autotune_conv(const ConvSpec& spec,
                                 const std::vector<dim3>& candidates,
+                                const std::vector<int>& conv_im2col_tile_ks,
                                 const half* input,
                                 half* output,
                                 size_t max_shared_mem,
@@ -221,13 +231,17 @@ static ConvResult autotune_conv(const ConvSpec& spec,
     result.spec = spec;
     result.best_block = dim3(1, 1, 1);
     result.best_time_ms = std::numeric_limits<float>::infinity();
+    result.best_tile = 0;
 
     for (const dim3& block : candidates) {
-        const float time_ms =
-            launch_and_time_conv(spec, block, input, output, max_shared_mem, repeats);
-        if (time_ms < result.best_time_ms) {
-            result.best_time_ms = time_ms;
-            result.best_block = block;
+        for (const int& tile : conv_im2col_tile_ks) {
+            const float time_ms =
+                launch_and_time_conv(spec, block, input, output, max_shared_mem, tile, repeats);
+            if (time_ms < result.best_time_ms) {
+                result.best_time_ms = time_ms;
+                result.best_block = block;
+                result.best_tile = tile;
+            }
         }
     }
 
@@ -305,7 +319,21 @@ int main(int argc, char** argv) {
     CUDA_ERR(cudaDeviceGetAttribute(&shared_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
     const size_t max_shared_mem = static_cast<size_t>(std::max(shared_default, shared_optin));
 
+    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<4, 2>,
+                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                  shared_optin));
+    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<8, 3>,
+                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                  shared_optin));
+    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<16, 4>,
+                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                  shared_optin));
+    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<32, 5>,
+                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                  shared_optin));
+
     const std::vector<dim3> candidates = build_candidate_blocks();
+    const std::vector<int> conv_im2col_tile_ks = {4, 8, 16, 32};
     const int repeats = 3;
 
     std::vector<ConvResult> results;
@@ -313,9 +341,16 @@ int main(int argc, char** argv) {
     printf("Autotuning %zu convolution kernels...\n", specs.size());
     for (const auto& spec : specs) {
         ConvResult result =
-            autotune_conv(spec, candidates, d_input, d_output, max_shared_mem, repeats);
-        printf("  %-12s -> block (%u, %u, %u) : %.4f ms\n",
+            autotune_conv(spec, candidates, conv_im2col_tile_ks, d_input, d_output, max_shared_mem, repeats);
+        printf("  %-12s -> shape (%zux%zux%zu, %zux%zux%zu) tile %2d block (%u, %u, %u) : %.4f ms\n",
                result.spec.label.c_str(),
+               result.spec.in_h,
+               result.spec.in_w,
+               result.spec.in_c,
+               result.spec.in_h,
+               result.spec.in_w,
+               result.spec.out_c,
+               result.best_tile,
                result.best_block.x,
                result.best_block.y,
                result.best_block.z,
