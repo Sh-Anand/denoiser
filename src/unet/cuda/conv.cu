@@ -83,18 +83,14 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     half* next_a = smem + tile_a_elems + tile_b_elems;
     half* next_b = smem + tile_a_elems + tile_b_elems + tile_a_elems;
 
-    uint32_t next_k_base = CONV_IM2COL_TILE_K;
-    bool has_next = next_k_base < total_k;
-    
+    uint32_t k_base = 0;
+
     LOAD_TILE(curr_a, curr_b, weights, linear_tid, tile_a_elems, tile_b_elems,
               block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
-              total_k, input, block_h0, block_w0, block_o0, 0);
-    if (has_next) {
-        LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems,
-                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
-                  total_k, input, block_h0, block_w0, block_o0, next_k_base);
-    }
+              total_k, input, block_h0, block_w0, block_o0, k_base);
     __syncthreads();
+
+    k_base += CONV_IM2COL_TILE_K;
 
     while (true) {
         const half* a_row = curr_a + local_hw * CONV_IM2COL_TILE_K;
@@ -102,12 +98,14 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         for (uint32_t kk = 0; kk < CONV_IM2COL_TILE_K; ++kk)
             acc += a_row[kk] * b_col[kk];
 
-        if (!has_next) {
+        if (k_base >= total_k) {
             break;
         }
 
-        uint32_t current_k_base = next_k_base;
-        next_k_base = current_k_base + CONV_IM2COL_TILE_K;
+        LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems,
+                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
+                  total_k, input, block_h0, block_w0, block_o0, k_base);
+        __syncthreads();
 
         half* temp_a = curr_a;
         half* temp_b = curr_b;
@@ -116,16 +114,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         next_a = temp_a;
         next_b = temp_b;
 
-        if (next_k_base < total_k) {
-            LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems, 
-                      block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
-                      total_k, input, block_h0, block_w0, block_o0, next_k_base);
-            has_next = true;
-        } else {
-            has_next = false;
-        }
-
-        __syncthreads();
+        k_base += CONV_IM2COL_TILE_K;
     }
 
     if (h < in_h && w < in_w && o < out_c) {
