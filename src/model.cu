@@ -55,21 +55,21 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
         block_dims = {
             {dim3(4, 2, 32)},
             {dim3(2, 4, 32)},
-            {dim3(8, 2, 16)},
+            {dim3(2, 4, 16)},
             {dim3(2, 4, 32)},
-            {dim3(4, 2, 32)},
+            {dim3(2, 4, 16)},
+            {dim3(2, 4, 32), dim3(2, 4, 32)},
+            {dim3(2, 4, 32), dim3(2, 4, 32)},
+            {dim3(2, 4, 32), dim3(4, 4, 32)},
+            {dim3(4, 2, 64), dim3(4, 2, 64)},
             {dim3(2, 4, 32), dim3(4, 2, 32)},
-            {dim3(4, 2, 32), dim3(4, 2, 32)},
-            {dim3(4, 2, 32), dim3(4, 2, 32)},
-            {dim3(2, 4, 64), dim3(2, 4, 32)},
-            {dim3(4, 2, 32), dim3(2, 4, 32)},
-            {dim3(16, 12, 4)}
+            {dim3(8, 12, 4)}
         };
 
         conv_im2col_tile_ks = {
             {16},
             {16},
-            {8},
+            {16},
             {16},
             {16},
             {16, 16},
