@@ -10,6 +10,19 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
     std::vector<std::vector<dim3>> block_dims;
     std::vector<std::vector<int>> conv_im2col_tile_ks;
     int decoder_layer_offset = 0;
+    auto reorder_oihw_to_krsc = [](const auto* src, auto* dst, uint32_t K, uint32_t C, uint32_t R, uint32_t S) {
+        for (uint32_t k = 0; k < K; ++k) {
+            for (uint32_t r = 0; r < R; ++r) {
+                for (uint32_t s = 0; s < S; ++s) {
+                    for (uint32_t c = 0; c < C; ++c) {
+                        const uint32_t src_idx = (((k * C + c) * R + r) * S) + s;
+                        const uint32_t dst_idx = (((k * R + r) * S + s) * C) + c;
+                        dst[dst_idx] = src[src_idx];
+                    }
+                }
+            }
+        }
+    };
     if (model_name == "rt_hdr") {
         layers = {
             {weights.find("enc_conv0.weight"), weights.find("enc_conv0.bias")},
@@ -112,10 +125,30 @@ UNetModel createUNetModel(const std::string& model_name, TzaFile& weights, bool 
                 model.decoder_layers[decoder_layer_idx].weight_idxs[j] = offset;
             else
                 model.encoder_layers[i].weight_idxs[j] = offset;
+            const TzaTensor* weight_tensor = layers[i][weight_idx];
+            const bool is_conv_weight = weight_tensor->dims.size() == 4;
+            const uint32_t K = is_conv_weight ? weight_tensor->dims[0] : 0;
+            const uint32_t C = is_conv_weight ? weight_tensor->dims[1] : 0;
+            const uint32_t R = is_conv_weight ? weight_tensor->dims[2] : 0;
+            const uint32_t S = is_conv_weight ? weight_tensor->dims[3] : 0;
             if (cuda) {
-                CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), layers[i][weight_idx]->data.data(), layers[i][weight_idx]->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
+                if (is_conv_weight) {
+                    std::vector<half> reordered(weight_tensor->elementCount());
+                    const half* src = reinterpret_cast<const half*>(weight_tensor->data.data());
+                    reorder_oihw_to_krsc(src, reordered.data(), K, C, R, S);
+                    CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), reordered.data(), reordered.size() * sizeof(half), cudaMemcpyHostToDevice));
+                } else {
+                    CUDA_ERR(cudaMemcpy((void *)(model.weights->half_data + offset), weight_tensor->data.data(), weight_tensor->elementCount() * sizeof(half), cudaMemcpyHostToDevice));
+                }
             } else {
-                memcpy((void *)(model.weights->float16_data + offset), layers[i][weight_idx]->data.data(), layers[i][weight_idx]->elementCount() * sizeof(_Float16));
+                if (is_conv_weight) {
+                    std::vector<_Float16> reordered(weight_tensor->elementCount());
+                    const _Float16* src = reinterpret_cast<const _Float16*>(weight_tensor->data.data());
+                    reorder_oihw_to_krsc(src, reordered.data(), K, C, R, S);
+                    memcpy((void *)(model.weights->float16_data + offset), reordered.data(), reordered.size() * sizeof(_Float16));
+                } else {
+                    memcpy((void *)(model.weights->float16_data + offset), weight_tensor->data.data(), weight_tensor->elementCount() * sizeof(_Float16));
+                }
             }
 
             offset += layers[i][weight_idx]->elementCount();

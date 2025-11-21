@@ -103,9 +103,11 @@ void conv_relu_nhwc_oihw(const float* input,
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < static_cast<int>(ic); ++i) {
         for (int f = 0; f < static_cast<int>(filter_area); ++f) {
+            const size_t fh = static_cast<size_t>(f) / filter_w;
+            const size_t fw = static_cast<size_t>(f) - fh * filter_w;
             const size_t dst_base = (static_cast<size_t>(i) * filter_area + static_cast<size_t>(f)) * oc;
             for (size_t o = 0; o < oc; ++o) {
-                const size_t src_index = ((o * ic + static_cast<size_t>(i)) * filter_area) + static_cast<size_t>(f);
+                const size_t src_index = (((o * filter_h + fh) * filter_w + fw) * ic) + static_cast<size_t>(i);
                 packed_weights[dst_base + o] = static_cast<float>(weights[src_index]);
             }
         }

@@ -19,9 +19,10 @@ __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* we
             const uint32_t h_out = block_h0 + local_x;
             const uint32_t w_out = block_w0 + local_y;
             if (h_out < in_h && w_out < in_w) {
-                const uint32_t ic = k_idx / 9;
-                const uint32_t fh = (k_idx % 9) / 3;
-                const uint32_t fw = k_idx % 3;
+                const uint32_t spatial = k_idx / in_c;
+                const uint32_t ic = k_idx - spatial * in_c;
+                const uint32_t fh = spatial / 3;
+                const uint32_t fw = spatial - fh * 3;
                 const uint32_t ih = h_out + fh - 1;
                 const uint32_t iw = w_out + fw - 1;
                 if (ih < in_h && iw < in_w) {
@@ -41,7 +42,7 @@ __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* we
             const uint32_t o_out_local = idx >> LOG_CONV_IM2COL_TILE_K;                    
             const uint32_t o_out = block_o0 + o_out_local;                                 
             if (o_out < out_c) {                                                           
-                val_b = weights[o_out * total_k + k_idx];                                  
+                val_b = weights[o_out * total_k + k_idx];
             }                                                                              
         }                                                                                  
         dst_b[idx] = val_b;                                                               
