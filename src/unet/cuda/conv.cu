@@ -8,10 +8,6 @@
 #include "cutlass/conv/kernel/default_conv2d_fprop.h"
 #include "cutlass/conv/device/implicit_gemm_convolution.h"
 
-// Centralize supported input-channel specializations to avoid duplicate switches.
-#define FOR_EACH_IN_C(M) \
-    M(3) M(16) M(32) M(48) M(64) M(67) M(80) M(96) M(112) M(128) M(160)
-
 namespace {
 template <uint8_t CONV_IM2COL_TILE_K, uint8_t LOG_CONV_IM2COL_TILE_K>
 inline void launch_conv_for_in_c(uint32_t in_c,

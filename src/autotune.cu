@@ -305,6 +305,17 @@ int main(int argc, char** argv) {
     CUDA_ERR(cudaDeviceGetAttribute(&shared_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
     const size_t max_shared_mem = static_cast<size_t>(std::max(shared_default, shared_optin));
 
+    // Opt-in to the larger dynamic shared memory for all conv kernel specializations we might launch.
+    auto set_smem_optin = [&](auto K, auto LOG) {
+#define SET_FOR_IN_C(IC) CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<K, LOG, IC>, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_optin));
+        FOR_EACH_IN_C(SET_FOR_IN_C)
+#undef SET_FOR_IN_C
+    };
+    set_smem_optin(std::integral_constant<uint8_t, 8>{}, std::integral_constant<uint8_t, 3>{});
+    set_smem_optin(std::integral_constant<uint8_t, 16>{}, std::integral_constant<uint8_t, 4>{});
+    set_smem_optin(std::integral_constant<uint8_t, 32>{}, std::integral_constant<uint8_t, 5>{});
+    set_smem_optin(std::integral_constant<uint8_t, 64>{}, std::integral_constant<uint8_t, 6>{});
+
     const std::vector<dim3> candidates = build_candidate_blocks();
     const std::vector<int> conv_im2col_tile_ks = {8, 16, 32, 64};
     const int repeats = 3;

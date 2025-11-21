@@ -3,6 +3,12 @@
 
 #include "cuda_defs.h"
 
+// Centralized list of supported compile-time input channel specializations.
+#ifndef FOR_EACH_IN_C
+#define FOR_EACH_IN_C(M) \
+    M(3) M(16) M(32) M(48) M(64) M(67) M(80) M(96) M(112) M(128) M(160)
+#endif
+
 void conv_relu_nhwc_oihw(const float* input,
                         float* output,
                         size_t in_h,
