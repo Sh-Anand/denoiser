@@ -3,47 +3,52 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
-#define LOAD_TILE_A(dst_a, k_base_val)                                                     \
-    for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) {            \
-        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);                             \
-        const uint32_t k_idx = k_base_val + k_col;                                         \
-        half val_a = 0;                                                                    \
-        if (k_idx < total_k) {                                                             \
-            const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;                         \
-            const uint32_t local_x = hw_idx % blockDim.x;                                  \
-            const uint32_t local_y = hw_idx / blockDim.x;                                  \
-            const uint32_t h_out = block_h0 + local_x;                                     \
-            const uint32_t w_out = block_w0 + local_y;                                     \
-            if (h_out < in_h && w_out < in_w) {                                            \
-                const uint32_t ic = k_idx / 9;                                             \
-                const uint32_t fh = (k_idx % 9) / 3;                                       \
-                const uint32_t fw = k_idx % 3;                                             \
-                const uint32_t ih = h_out + fh - 1;                                        \
-                const uint32_t iw = w_out + fw - 1;                                        \
-                if (ih < in_h && iw < in_w) {                                              \
-                    const uint32_t input_idx = ((ih * in_w + iw) * in_c) + ic;             \
-                    val_a = input[input_idx];                                              \
-                }                                                                          \
-            }                                                                              \
-        }                                                                                  \
-        dst_a[idx] = val_a;                                                                \
+__device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* weights,
+                               uint32_t linear_tid, uint32_t tile_a_elems, uint32_t tile_b_elems, uint32_t block_threads,
+                               uint32_t CONV_IM2COL_TILE_K, uint32_t LOG_CONV_IM2COL_TILE_K, uint32_t in_h, uint32_t in_w, uint32_t in_c, uint32_t out_c,
+                               uint32_t total_k, const half* input, uint32_t block_h0, uint32_t block_w0, uint32_t block_o0, uint32_t k_base_val) {
+    for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) {
+        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);
+        const uint32_t k_idx = k_base_val + k_col;
+        half val_a = 0;
+        if (k_idx < total_k) {
+            const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;
+            const uint32_t local_x = hw_idx % blockDim.x;
+            const uint32_t local_y = hw_idx / blockDim.x;
+            const uint32_t h_out = block_h0 + local_x;
+            const uint32_t w_out = block_w0 + local_y;
+            if (h_out < in_h && w_out < in_w) {
+                const uint32_t ic = k_idx / 9;
+                const uint32_t fh = (k_idx % 9) / 3;
+                const uint32_t fw = k_idx % 3;
+                const uint32_t ih = h_out + fh - 1;
+                const uint32_t iw = w_out + fw - 1;
+                if (ih < in_h && iw < in_w) {
+                    const uint32_t input_idx = ((ih * in_w + iw) * in_c) + ic;
+                    val_a = input[input_idx];
+                }
+            }
+        }
+        dst_a[idx] = val_a;
     }
 
-#define LOAD_TILE_B(dst_b, k_base_val)                                                     \
-    for (uint32_t idx = linear_tid; idx < tile_b_elems; idx += block_threads) {            \
-        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);                             \
-        const uint32_t k_idx = k_base_val + k_col;                                         \
-        half val_b = 0;                                                                    \
-        if (k_idx < total_k) {                                                             \
-            const uint32_t o_out_local = idx >> LOG_CONV_IM2COL_TILE_K;                    \
-            const uint32_t o_out = block_o0 + o_out_local;                                 \
-            if (o_out < out_c) {                                                           \
-                val_b = weights[o_out * total_k + k_idx];                                  \
-            }                                                                              \
-        }                                                                                  \
-        dst_b[idx] = val_b;                                                                \
+    for (uint32_t idx = linear_tid; idx < tile_b_elems; idx += block_threads) {            
+        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);                             
+        const uint32_t k_idx = k_base_val + k_col;                                         
+        half val_b = 0;                                                                    
+        if (k_idx < total_k) {                                                             
+            const uint32_t o_out_local = idx >> LOG_CONV_IM2COL_TILE_K;                    
+            const uint32_t o_out = block_o0 + o_out_local;                                 
+            if (o_out < out_c) {                                                           
+                val_b = weights[o_out * total_k + k_idx];                                  
+            }                                                                              
+        }                                                                                  
+        dst_b[idx] = val_b;                                                               
     }
-    
+}
+                                        
+
+
 template <int CONV_IM2COL_TILE_K, int LOG_CONV_IM2COL_TILE_K>
 __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                                          half* output,
@@ -71,26 +76,23 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     const uint32_t tile_a_elems = blockDim.x * blockDim.y * CONV_IM2COL_TILE_K;
     const uint32_t tile_b_elems = blockDim.z * CONV_IM2COL_TILE_K;
 
-    half* tile_a_curr = smem;
-    half* tile_b_curr = tile_a_curr + tile_a_elems;
-    half* tile_a_next = tile_b_curr + tile_b_elems;
-    half* tile_b_next = tile_a_next + tile_a_elems;
-
     half acc = (o < out_c) ? bias[o] : __float2half(0.0f);
 
-    half* curr_a = tile_a_curr;
-    half* curr_b = tile_b_curr;
-    half* next_a = tile_a_next;
-    half* next_b = tile_b_next;
+    half* curr_a = smem;
+    half* curr_b = smem + tile_a_elems;
+    half* next_a = smem + tile_a_elems + tile_b_elems;
+    half* next_b = smem + tile_a_elems + tile_b_elems + tile_a_elems;
 
     uint32_t next_k_base = CONV_IM2COL_TILE_K;
     bool has_next = next_k_base < total_k;
-
-    LOAD_TILE_A(curr_a, 0);
-    LOAD_TILE_B(curr_b, 0);
+    
+    LOAD_TILE(curr_a, curr_b, weights, linear_tid, tile_a_elems, tile_b_elems,
+              block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
+              total_k, input, block_h0, block_w0, block_o0, 0);
     if (has_next) {
-        LOAD_TILE_A(next_a, next_k_base);
-        LOAD_TILE_B(next_b, next_k_base);
+        LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems,
+                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
+                  total_k, input, block_h0, block_w0, block_o0, next_k_base);
     }
     __syncthreads();
 
@@ -99,7 +101,6 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         const half* b_col = curr_b + threadIdx.z * CONV_IM2COL_TILE_K;
         for (uint32_t kk = 0; kk < CONV_IM2COL_TILE_K; ++kk)
             acc += a_row[kk] * b_col[kk];
-
 
         if (!has_next) {
             break;
@@ -116,8 +117,9 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         next_b = temp_b;
 
         if (next_k_base < total_k) {
-            LOAD_TILE_A(next_a, next_k_base);
-            LOAD_TILE_B(next_b, next_k_base);
+            LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems, 
+                      block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
+                      total_k, input, block_h0, block_w0, block_o0, next_k_base);
             has_next = true;
         } else {
             has_next = false;
@@ -125,9 +127,6 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
 
         __syncthreads();
     }
-
-#undef LOAD_TILE_A
-#undef LOAD_TILE_B
 
     if (h < in_h && w < in_w && o < out_c) {
         const uint32_t out_idx = ((h * in_w + w) * out_c) + o;
