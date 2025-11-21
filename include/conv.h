@@ -29,9 +29,22 @@ void nn_upsample_nhwc(const float* input,
                       size_t in_w,
                       size_t in_c);
 
-
 #ifdef __CUDACC__
 #include <cuda_fp16.h>
+
+void gpu_conv(const half* input,
+                             half* output,
+                             size_t in_h,
+                             size_t in_w,
+                             size_t in_c,
+                             size_t out_c,
+                             const half* weights,
+                             const half* bias,
+                             const dim3& block,
+                             const dim3& grid,
+                             const int& conv_im2col_tile_ks,
+                             const size_t& conv_shared_mem,
+                             bool cutlass_conv = false);
 
 template <int CONV_IM2COL_TILE_K, int LOG_CONV_IM2COL_TILE_K>
 __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
@@ -40,7 +53,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                         size_t in_w,
                         size_t in_c,
                         size_t out_c,
-                        const __half* weights,
+                        const half* weights,
                         const __half* bias);
 
 __global__ void max_pool_nhwc_cuda(const half* input,

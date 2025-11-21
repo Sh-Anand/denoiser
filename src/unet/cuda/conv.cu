@@ -3,6 +3,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
+
 __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* weights,
                                uint32_t linear_tid, uint32_t tile_a_elems, uint32_t tile_b_elems, uint32_t block_threads,
                                uint32_t CONV_IM2COL_TILE_K, uint32_t LOG_CONV_IM2COL_TILE_K, uint32_t in_h, uint32_t in_w, uint32_t in_c, uint32_t out_c,
@@ -120,6 +121,41 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     if (h < in_h && w < in_w && o < out_c) {
         const uint32_t out_idx = ((h * in_w + w) * out_c) + o;
         output[out_idx] = __hmax(acc, 0);
+    }
+}
+
+void gpu_conv(const half* input,
+                             half* output,
+                             size_t in_h,
+                             size_t in_w,
+                             size_t in_c,
+                             size_t out_c,
+                             const half* weights,
+                             const half* bias,
+                             const dim3& block,
+                             const dim3& grid,
+                             const int& conv_im2col_tile_ks,
+                             const size_t& conv_shared_mem,
+                             bool cutlass_conv) {
+    if (cutlass_conv) {
+        // TODO: Implement cutlass conv
+    } else {
+        switch (conv_im2col_tile_ks) {
+            case 4:
+                conv_relu_nhwc_oihw_cuda<4, 2><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                break;
+            case 8:
+                conv_relu_nhwc_oihw_cuda<8, 3><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                break;
+            case 16:
+                conv_relu_nhwc_oihw_cuda<16, 4><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                break;
+            case 32:
+                conv_relu_nhwc_oihw_cuda<32, 5><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                break;
+            default:
+                throw std::runtime_error("Invalid conv_im2col_tile_ks");
+        }
     }
 }
 

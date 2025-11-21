@@ -65,36 +65,6 @@ __global__ static void cuda_concat_skip(const half* input, size_t c_input,
     }
 }
 
-static void call_conv(const half* input,
-                      half* output,
-                      size_t h,
-                      size_t w,
-                      size_t c,
-                      size_t out_c,
-                      const half* weights,
-                      const half* bias,
-                      const dim3& block,
-                      const dim3& grid,
-                      const int& conv_im2col_tile_ks,
-                      const size_t& conv_shared_mem) {
-    switch (conv_im2col_tile_ks) {
-        case 4:
-            conv_relu_nhwc_oihw_cuda<4, 2><<<grid, block, conv_shared_mem>>>(input, output, h, w, c, out_c, weights, bias);
-            break;
-        case 8:
-            conv_relu_nhwc_oihw_cuda<8, 3><<<grid, block, conv_shared_mem>>>(input, output, h, w, c, out_c, weights, bias);
-            break;
-        case 16:
-            conv_relu_nhwc_oihw_cuda<16, 4><<<grid, block, conv_shared_mem>>>(input, output, h, w, c, out_c, weights, bias);
-            break;
-        case 32:
-            conv_relu_nhwc_oihw_cuda<32, 5><<<grid, block, conv_shared_mem>>>(input, output, h, w, c, out_c, weights, bias);
-            break;
-        default:
-            throw std::runtime_error("Invalid conv_im2col_tile_ks");
-    }
-}
-
 static void apply_convolutions(const Layer& layer,
                                const UNetModel& model,
                                half*& d_input,
@@ -113,7 +83,7 @@ static void apply_convolutions(const Layer& layer,
         const half* weights = model.weights->half_data + layer.weight_idxs[i];
         const half* bias = model.weights->half_data + layer.bias_idxs[i];
         
-        call_conv(d_input, d_output, h, w, c, out_c, weights, bias, block, grid, layer.conv_im2col_tile_ks[i], conv_shared_mem);
+        gpu_conv(d_input, d_output, h, w, c, out_c, weights, bias, block, grid, layer.conv_im2col_tile_ks[i], conv_shared_mem);
 
         c = out_c;
         std::swap(d_input, d_output);
