@@ -1,8 +1,13 @@
 #include "conv.h"
 
 #include <cuda_fp16.h>
+#include <cuda_runtime.h>
 #include <cstdint>
+#include <stdexcept>
 
+#include <cutlass/cutlass.h>
+#include "cutlass/conv/kernel/default_conv2d_fprop.h"
+#include "cutlass/conv/device/implicit_gemm_convolution.h"
 
 __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* weights,
                                uint32_t linear_tid, uint32_t tile_a_elems, uint32_t tile_b_elems, uint32_t block_threads,
@@ -139,7 +144,35 @@ void gpu_conv(const half* input,
                              const size_t& conv_shared_mem,
                              bool cutlass_conv) {
     if (cutlass_conv) {
-        // TODO: Implement cutlass conv
+        using ElementA           = cutlass::half_t;
+        using ElementB           = cutlass::half_t;
+        using ElementC           = float;
+        using ElementAccumulator = float;
+        using ElementCompute     = float;
+        using Conv2dFpropKernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
+            ElementA, cutlass::layout::TensorNHWC,
+            ElementB, cutlass::layout::TensorNHWC,
+            ElementC, cutlass::layout::TensorNHWC,
+            ElementAccumulator,
+            cutlass::arch::OpClassTensorOp,
+            cutlass::arch::Sm80,
+            cutlass::gemm::GemmShape<128, 128, 64>,
+            cutlass::gemm::GemmShape<64, 64, 64>,
+            cutlass::gemm::GemmShape<16, 8, 16>,
+            cutlass::epilogue::thread::LinearCombination<
+            ElementC,
+            128 / cutlass::sizeof_bits<ElementC>::value,
+            ElementAccumulator,
+            ElementCompute
+            >,
+            cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+            3,
+            cutlass::arch::OpMultiplyAdd,
+            cutlass::conv::IteratorAlgorithm::kAnalytic
+        >::Kernel;
+
+        using Conv2dFprop = cutlass::conv::device::ImplicitGemmConvolution<Conv2dFpropKernel>;
+        Conv2dFprop implicit_gemm_op;
     } else {
         switch (conv_im2col_tile_ks) {
             case 4:
