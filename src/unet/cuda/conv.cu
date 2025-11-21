@@ -2,12 +2,43 @@
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
-#include <cstdint>
 #include <stdexcept>
 
 #include <cutlass/cutlass.h>
 #include "cutlass/conv/kernel/default_conv2d_fprop.h"
 #include "cutlass/conv/device/implicit_gemm_convolution.h"
+
+// Centralize supported input-channel specializations to avoid duplicate switches.
+#define FOR_EACH_IN_C(M) \
+    M(3) M(16) M(32) M(48) M(64) M(67) M(80) M(96) M(112) M(128) M(160)
+
+namespace {
+template <uint8_t CONV_IM2COL_TILE_K, uint8_t LOG_CONV_IM2COL_TILE_K>
+inline void launch_conv_for_in_c(uint32_t in_c,
+                                 const half* input,
+                                 half* output,
+                                 size_t in_h,
+                                 size_t in_w,
+                                 size_t out_c,
+                                 const half* weights,
+                                 const half* bias,
+                                 const dim3& block,
+                                 const dim3& grid,
+                                 const size_t& conv_shared_mem) {
+    switch (in_c) {
+#define CASE(IC)                                                                                  \
+        case IC:                                                                                  \
+            conv_relu_nhwc_oihw_cuda<CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, IC>              \
+                <<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, out_c, weights,     \
+                                                   bias);                                         \
+            break;
+        FOR_EACH_IN_C(CASE)
+#undef CASE
+        default:
+            throw std::runtime_error("Invalid in_c");
+    }
+}
+} // namespace
 
 __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* weights,
                                uint32_t linear_tid, uint32_t tile_a_elems, uint32_t tile_b_elems, uint32_t block_threads,
@@ -54,14 +85,11 @@ __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* we
     }
 }
                                         
-
-
-template <int CONV_IM2COL_TILE_K, int LOG_CONV_IM2COL_TILE_K>
+template <uint8_t CONV_IM2COL_TILE_K, uint8_t LOG_CONV_IM2COL_TILE_K, uint32_t IN_C>
 __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                                          half* output,
                                          size_t in_h,
                                          size_t in_w,
-                                         size_t in_c,
                                          size_t out_c,
                                          const half* weights,
                                          const half* bias) {
@@ -79,7 +107,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     const uint32_t w = block_w0 + threadIdx.y;
     const uint32_t o = block_o0 + threadIdx.z;
 
-    const uint32_t total_k = in_c * 9;
+    const uint32_t total_k = IN_C * 9;
     const uint32_t tile_a_elems = blockDim.x * blockDim.y * CONV_IM2COL_TILE_K;
     const uint32_t tile_b_elems = blockDim.z * CONV_IM2COL_TILE_K;
 
@@ -95,7 +123,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     uint32_t k_base = 0;
 
     LOAD_TILE(curr_a, curr_b, weights, linear_tid, tile_a_elems, tile_b_elems,
-              block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, log_block_dim_x, in_h, in_w, in_c, out_c,
+              block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, log_block_dim_x, in_h, in_w, IN_C, out_c,
               total_k, input, block_h0, block_w0, block_o0, k_base);
     __syncthreads();
 
@@ -112,7 +140,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         }
 
         LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems,
-                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, log_block_dim_x, in_h, in_w, in_c, out_c,
+                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, log_block_dim_x, in_h, in_w, IN_C, out_c,
                   total_k, input, block_h0, block_w0, block_o0, k_base);
         __syncthreads();
 
@@ -178,55 +206,30 @@ void gpu_conv(const half* input,
     } else {
         switch (conv_im2col_tile_ks) {
             case 4:
-                conv_relu_nhwc_oihw_cuda<4, 2><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                launch_conv_for_in_c<4, 2>(in_c, input, output, in_h, in_w, out_c, weights, bias,
+                                           block, grid, conv_shared_mem);
                 break;
             case 8:
-                conv_relu_nhwc_oihw_cuda<8, 3><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                launch_conv_for_in_c<8, 3>(in_c, input, output, in_h, in_w, out_c, weights, bias,
+                                            block, grid, conv_shared_mem);
                 break;
             case 16:
-                conv_relu_nhwc_oihw_cuda<16, 4><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                launch_conv_for_in_c<16, 4>(in_c, input, output, in_h, in_w, out_c, weights, bias,
+                                             block, grid, conv_shared_mem);
                 break;
             case 32:
-                conv_relu_nhwc_oihw_cuda<32, 5><<<grid, block, conv_shared_mem>>>(input, output, in_h, in_w, in_c, out_c, weights, bias);
+                launch_conv_for_in_c<32, 5>(in_c, input, output, in_h, in_w, out_c, weights, bias,
+                                             block, grid, conv_shared_mem);
+                break;
+            case 64:
+                launch_conv_for_in_c<64, 6>(in_c, input, output, in_h, in_w, out_c, weights, bias,
+                                             block, grid, conv_shared_mem);
                 break;
             default:
                 throw std::runtime_error("Invalid conv_im2col_tile_ks");
         }
     }
 }
-
-template __global__ void conv_relu_nhwc_oihw_cuda<4, 2>(const half*,
-                                                        half*,
-                                                        size_t,
-                                                        size_t,
-                                                        size_t,
-                                                        size_t,
-                                                        const half*,
-                                                        const half*);
-template __global__ void conv_relu_nhwc_oihw_cuda<8, 3>(const half*,
-                                                        half*,
-                                                        size_t,
-                                                        size_t,
-                                                        size_t,
-                                                        size_t,
-                                                        const half*,
-                                                        const half*);
-template __global__ void conv_relu_nhwc_oihw_cuda<16, 4>(const half*,
-                                                         half*,
-                                                         size_t,
-                                                         size_t,
-                                                         size_t,
-                                                         size_t,
-                                                         const half*,
-                                                         const half*);
-template __global__ void conv_relu_nhwc_oihw_cuda<32, 5>(const half*,
-                                                         half*,
-                                                         size_t,
-                                                         size_t,
-                                                         size_t,
-                                                         size_t,
-                                                         const half*,
-                                                         const half*);
 
 
 __global__ void max_pool_nhwc_cuda(const half* input,

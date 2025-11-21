@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <cstdint>
 
 #include "cuda_defs.h"
 
@@ -46,12 +47,11 @@ void gpu_conv(const half* input,
                              const size_t& conv_shared_mem,
                              bool cutlass_conv = false);
 
-template <int CONV_IM2COL_TILE_K, int LOG_CONV_IM2COL_TILE_K>
+template <uint8_t CONV_IM2COL_TILE_K, uint8_t LOG_CONV_IM2COL_TILE_K, uint32_t IN_C>
 __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
                         half* output,
                         size_t in_h,
                         size_t in_w,
-                        size_t in_c,
                         size_t out_c,
                         const half* weights,
                         const __half* bias);
