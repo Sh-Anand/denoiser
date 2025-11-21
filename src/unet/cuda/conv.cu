@@ -11,7 +11,7 @@
 
 __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* weights,
                                uint32_t linear_tid, uint32_t tile_a_elems, uint32_t tile_b_elems, uint32_t block_threads,
-                               uint32_t CONV_IM2COL_TILE_K, uint32_t LOG_CONV_IM2COL_TILE_K, uint32_t in_h, uint32_t in_w, uint32_t in_c, uint32_t out_c,
+                               uint32_t CONV_IM2COL_TILE_K, uint32_t LOG_CONV_IM2COL_TILE_K, uint32_t log_block_dim_x, uint32_t in_h, uint32_t in_w, uint32_t in_c, uint32_t out_c,
                                uint32_t total_k, const half* input, uint32_t block_h0, uint32_t block_w0, uint32_t block_o0, uint32_t k_base_val) {
     for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) {
         const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);
@@ -19,8 +19,8 @@ __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* we
         half val_a = 0;
         if (k_idx < total_k) {
             const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;
-            const uint32_t local_x = hw_idx % blockDim.x;
-            const uint32_t local_y = hw_idx / blockDim.x;
+            const uint32_t local_x = hw_idx & (blockDim.x - 1);
+            const uint32_t local_y = hw_idx >> log_block_dim_x;
             const uint32_t h_out = block_h0 + local_x;
             const uint32_t w_out = block_w0 + local_y;
             if (h_out < in_h && w_out < in_w) {
@@ -83,6 +83,8 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     const uint32_t tile_a_elems = blockDim.x * blockDim.y * CONV_IM2COL_TILE_K;
     const uint32_t tile_b_elems = blockDim.z * CONV_IM2COL_TILE_K;
 
+    const uint32_t log_block_dim_x = __ffs(blockDim.x) - 1;
+
     half acc = (o < out_c) ? bias[o] : __float2half(0.0f);
 
     half* curr_a = smem;
@@ -93,7 +95,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
     uint32_t k_base = 0;
 
     LOAD_TILE(curr_a, curr_b, weights, linear_tid, tile_a_elems, tile_b_elems,
-              block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
+              block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, log_block_dim_x, in_h, in_w, in_c, out_c,
               total_k, input, block_h0, block_w0, block_o0, k_base);
     __syncthreads();
 
@@ -110,7 +112,7 @@ __global__ void conv_relu_nhwc_oihw_cuda(const half* input,
         }
 
         LOAD_TILE(next_a, next_b, weights, linear_tid, tile_a_elems, tile_b_elems,
-                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, in_h, in_w, in_c, out_c,
+                  block_threads, CONV_IM2COL_TILE_K, LOG_CONV_IM2COL_TILE_K, log_block_dim_x, in_h, in_w, in_c, out_c,
                   total_k, input, block_h0, block_w0, block_o0, k_base);
         __syncthreads();
 
