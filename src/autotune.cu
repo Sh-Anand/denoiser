@@ -190,22 +190,8 @@ static float launch_and_time_conv(const ConvSpec& spec,
 
     CUDA_ERR(cudaEventRecord(start));
     for (int i = 0; i < repeats; ++i) {
-        switch (conv_im2col_tile_ks) {
-            case 4:
-                conv_relu_nhwc_oihw_cuda<4, 2><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
-                break;
-            case 8:
-                conv_relu_nhwc_oihw_cuda<8, 3><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
-                break;
-            case 16:
-                conv_relu_nhwc_oihw_cuda<16, 4><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
-                break;
-            case 32:
-                conv_relu_nhwc_oihw_cuda<32, 5><<<grid, block, shared_mem>>>(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c, spec.weights, spec.bias);
-                break;
-            default:
-                throw std::runtime_error("Invalid conv_im2col_tile_ks");
-        }
+        gpu_conv(input, output, spec.in_h, spec.in_w, spec.in_c, spec.out_c,
+                 spec.weights, spec.bias, block, grid, conv_im2col_tile_ks, shared_mem);
     }
     CUDA_ERR(cudaEventRecord(stop));
     CUDA_ERR(cudaEventSynchronize(stop));
@@ -319,21 +305,8 @@ int main(int argc, char** argv) {
     CUDA_ERR(cudaDeviceGetAttribute(&shared_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
     const size_t max_shared_mem = static_cast<size_t>(std::max(shared_default, shared_optin));
 
-    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<4, 2>,
-                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                  shared_optin));
-    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<8, 3>,
-                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                  shared_optin));
-    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<16, 4>,
-                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                  shared_optin));
-    CUDA_ERR(cudaFuncSetAttribute(conv_relu_nhwc_oihw_cuda<32, 5>,
-                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                  shared_optin));
-
     const std::vector<dim3> candidates = build_candidate_blocks();
-    const std::vector<int> conv_im2col_tile_ks = {4, 8, 16, 32};
+    const std::vector<int> conv_im2col_tile_ks = {8, 16, 32, 64};
     const int repeats = 3;
 
     std::vector<ConvResult> results;
