@@ -3,8 +3,8 @@
 
 #include "conv.h"
 #include "exr.h"
-#include "layer.h"
-#include "model.h"
+#include "model/layer.h"
+#include "model/model.h"
 #include "unet.h"
 #include "transfer.h"
 

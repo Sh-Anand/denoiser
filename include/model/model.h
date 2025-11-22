@@ -1,7 +1,7 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include "layer.h"
+#include "model/layer.h"
 #include <vector>
 
 struct UNetModel {

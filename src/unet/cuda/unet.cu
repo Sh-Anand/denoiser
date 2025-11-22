@@ -1,7 +1,7 @@
 #include "unet.h"
 #include "transfer.h"
 #include "conv.h"
-#include "layer.h"
+#include "model/layer.h"
 #include "tza.h"
 #include <cuda_fp16.h>
 #include <cstring>

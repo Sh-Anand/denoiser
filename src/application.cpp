@@ -3,7 +3,7 @@
 #include <chrono>
 
 #include "exr.h"
-#include "model.h"
+#include "model/model.h"
 #include "tza.h"
 #include "unet.h"
 

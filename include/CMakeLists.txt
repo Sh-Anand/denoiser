@@ -1,0 +1,78 @@
+cmake_minimum_required(VERSION 3.31)
+
+if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
+  set(CMAKE_CUDA_HOST_COMPILER "/usr/bin/g++-14" CACHE FILEPATH "Host compiler for NVCC" FORCE)
+endif()
+
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-14" CACHE FILEPATH "C++ compiler" FORCE)
+
+project(denoiser LANGUAGES CXX CUDA)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(CMAKE_CUDA_ARCHITECTURES 89)
+
+option(BUILD_DEBUG "Build with debug settings" OFF)
+set(BUILD_DEBUG ${BUILD_DEBUG} CACHE BOOL "Build debug" FORCE)
+
+if(BUILD_DEBUG)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0 -Wall -Wextra -Wpedantic")
+  set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -G -lineinfo")
+endif()
+
+set(APPLICATION_SOURCE
+    src/unet/cpu/conv.cpp
+    src/unet/cuda/conv.cu
+    src/application.cpp
+    src/exr.cpp
+    src/tza.cpp
+    src/model.cu
+    src/unet/cpu/unet.cpp
+    src/unet/cuda/unet.cu
+)
+
+find_package(OpenEXR REQUIRED)
+find_package(OpenMP REQUIRED)
+
+add_executable(denoiser ${APPLICATION_SOURCE})
+target_include_directories(denoiser PUBLIC include)
+target_link_libraries(denoiser
+    OpenEXR::OpenEXR
+    OpenMP::OpenMP_CXX)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3 -lineinfo -use_fast_math")
+
+set(AUTOTUNE_SOURCE
+    src/autotune.cu
+    src/unet/cuda/conv.cu
+    src/exr.cpp
+    src/model.cu
+    src/tza.cpp
+)
+
+add_executable(conv_autotune ${AUTOTUNE_SOURCE})
+target_include_directories(conv_autotune PUBLIC include)
+target_link_libraries(conv_autotune
+    OpenEXR::OpenEXR
+    OpenMP::OpenMP_CXX)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+target_compile_options(denoiser PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
+
+add_custom_command(TARGET denoiser POST_BUILD
+  BYPRODUCTS
+    ${CMAKE_CURRENT_BINARY_DIR}/denoiser.cubin
+    ${CMAKE_CURRENT_BINARY_DIR}/denoiser.ptx
+    ${CMAKE_CURRENT_BINARY_DIR}/denoiser.sass
+  COMMAND ${CMAKE_COMMAND} -E env PATH=$ENV{PATH}
+    cuobjdump --extract-elf all $<TARGET_FILE:denoiser>
+  COMMAND ${CMAKE_COMMAND}
+    -DCUBIN_PREFIX=denoiser
+    -DCUBIN_DIR=${CMAKE_CURRENT_BINARY_DIR}
+    -DCUBIN_OUTPUT=$<TARGET_FILE_DIR:denoiser>/denoiser.cubin
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/process_cubin.cmake
+  COMMAND ${CMAKE_COMMAND} -E env PATH=$ENV{PATH}
+    cuobjdump --dump-ptx $<TARGET_FILE:denoiser> > $<TARGET_FILE_DIR:denoiser>/denoiser.ptx
+  COMMAND ${CMAKE_COMMAND} -E env PATH=$ENV{PATH}
+    nvdisasm --print-line-info -hex $<TARGET_FILE_DIR:denoiser>/denoiser.cubin > $<TARGET_FILE_DIR:denoiser>/denoiser.sass
+  COMMENT "Generating cubin, PTX and SASS dumps for denoiser")

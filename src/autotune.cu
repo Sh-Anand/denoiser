@@ -11,7 +11,7 @@
 #include "conv.h"
 #include "cuda_defs.h"
 #include "exr.h"
-#include "model.h"
+#include "model/model.h"
 #include "tza.h"
 
 struct ConvSpec {
