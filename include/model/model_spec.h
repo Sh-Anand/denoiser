@@ -19,7 +19,7 @@ static void get_model_spec(const std::string& model_name, TzaFile& weights,
                            std::vector<std::vector<int>>& conv_im2col_tile_ks,
                            int& decoder_layer_offset) {
 
-    if (model_name == "rt_hdr") {
+    if (model_name == "rt_hdr" || model_name == "rt_hdr_alb_norm") {
         layers = {
             {weights.find("enc_conv0.weight"), weights.find("enc_conv0.bias")},
             {weights.find("enc_conv1.weight"), weights.find("enc_conv1.bias")},
@@ -77,8 +77,6 @@ static void get_model_spec(const std::string& model_name, TzaFile& weights,
         };
 
         decoder_layer_offset = 6;
-    } else if (model_name == "rt_hdr_alb_norm") {
-
     }
 }
 
