@@ -40,17 +40,19 @@ __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* we
                                uint32_t linear_tid, uint32_t tile_a_elems, uint32_t tile_b_elems, uint32_t block_threads,
                                uint32_t CONV_IM2COL_TILE_K, uint32_t LOG_CONV_IM2COL_TILE_K, uint32_t log_block_dim_x, uint32_t in_h, uint32_t in_w, uint32_t in_c, uint32_t out_c,
                                uint32_t total_k, const half* input, uint32_t block_h0, uint32_t block_w0, uint32_t block_o0, uint32_t k_base_val) {
-    for (uint32_t idx = linear_tid; idx < tile_a_elems; idx += block_threads) {
+    const uint32_t max_tile = max(tile_a_elems, tile_b_elems);
+    for (uint32_t idx = linear_tid; idx < max_tile; idx += block_threads) {
         const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);
         const uint32_t k_idx = k_base_val + k_col;
         half val_a = 0;
+        half val_b = 0;
         if (k_idx < total_k) {
             const uint32_t hw_idx = idx >> LOG_CONV_IM2COL_TILE_K;
             const uint32_t local_x = hw_idx & (blockDim.x - 1);
             const uint32_t local_y = hw_idx >> log_block_dim_x;
             const uint32_t h_out = block_h0 + local_x;
             const uint32_t w_out = block_w0 + local_y;
-            if (h_out < in_h && w_out < in_w) {
+            if (h_out < in_h && w_out < in_w && idx < tile_a_elems) {
                 const uint32_t spatial = k_idx / in_c;
                 const uint32_t ic = k_idx - spatial * in_c;
                 const uint32_t fh = spatial / 3;
@@ -62,22 +64,21 @@ __device__ static inline void LOAD_TILE(half* dst_a, half* dst_b, const half* we
                     val_a = input[input_idx];
                 }
             }
-        }
-        dst_a[idx] = val_a;
-    }
 
-    for (uint32_t idx = linear_tid; idx < tile_b_elems; idx += block_threads) {            
-        const uint32_t k_col = idx & (CONV_IM2COL_TILE_K - 1);                             
-        const uint32_t k_idx = k_base_val + k_col;                                         
-        half val_b = 0;                                                                    
-        if (k_idx < total_k) {                                                             
-            const uint32_t o_out_local = idx >> LOG_CONV_IM2COL_TILE_K;                    
-            const uint32_t o_out = block_o0 + o_out_local;                                 
-            if (o_out < out_c) {                                                           
-                val_b = weights[o_out * total_k + k_idx];
-            }                                                                              
-        }                                                                                  
-        dst_b[idx] = val_b;                                                               
+            if (k_idx < total_k && idx < tile_b_elems) {
+                const uint32_t o_out_local = idx >> LOG_CONV_IM2COL_TILE_K;
+                const uint32_t o_out = block_o0 + o_out_local;
+                if (o_out < out_c) {
+                    val_b = weights[o_out * total_k + k_idx];
+                }
+            }
+        }
+        if (idx < tile_a_elems) {
+            dst_a[idx] = val_a;
+        }
+        if (idx < tile_b_elems) {
+            dst_b[idx] = val_b;
+        }
     }
 }
                                         
