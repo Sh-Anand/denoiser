@@ -31,7 +31,7 @@ inline void launch_conv_for_in_c(uint32_t in_c,
         FOR_EACH_IN_C(CASE)
 #undef CASE
         default:
-            throw std::runtime_error("Invalid in_c");
+            throw std::runtime_error("Invalid in_c " + std::to_string(in_c));
     }
 }
 } // namespace
